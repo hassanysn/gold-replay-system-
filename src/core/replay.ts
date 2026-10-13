@@ -230,7 +230,9 @@ export class Replay {
     return reason;
   }
 
+  /** Events since the last call, including engine events raised by user actions between ticks. */
   takeEvents(): ReplayEvent[] {
+    for (const ev of this.engine.takeEvents()) this.events.push(ev);
     const e = this.events;
     this.events = [];
     return e;

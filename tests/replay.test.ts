@@ -205,3 +205,21 @@ describe('replay', () => {
     expect(run()).toBe(run());
   });
 });
+
+describe('replay events', () => {
+  it('delivers engine events from user actions without waiting for the next tick', () => {
+    const d = day('2026-10-09', [
+      [H, 2000, 2000.2],
+      [H + 1000, 2001, 2001.2],
+    ]);
+    const r = setup([d]);
+    r.start(0, d.dayStart + H + 1, 0);
+    r.engine.placeOrder('buy', 0.1);
+    r.processNextTick();
+    r.takeEvents();
+    r.engine.placeOrder('sell', 0.1);
+    r.engine.closeLadder(1);
+    const types = r.takeEvents().map((e) => e.type);
+    expect(types).toEqual(['rejected', 'ladderClosed']);
+  });
+});

@@ -32,7 +32,7 @@ def generate(start: dt.date, days: int, path: str, seed: int = 7, mean_gap_ms: f
             date_s = d.strftime("%Y.%m.%d")
             t = 60 * 60 * 1000 + rng.randint(0, 2000)  # session opens 01:00 server time
             end = 23 * 60 * 60 * 1000 + 57 * 60 * 1000
-            drift = rng.choice((-1, 1)) * rng.uniform(0.0, 0.004)
+            drift = rng.choice((-1, 1)) * rng.uniform(0.0, 0.0002)
             bid_c = round(price * 100)
             spread = 20
             ask_c = bid_c + spread
@@ -44,7 +44,7 @@ def generate(start: dt.date, days: int, path: str, seed: int = 7, mean_gap_ms: f
                 if t >= end:
                     break
                 if rng.random() < 0.002:
-                    drift = rng.choice((-1, 1)) * rng.uniform(0.0, 0.006)
+                    drift = rng.choice((-1, 1)) * rng.uniform(0.0, 0.0003)
                 step = rng.gauss(drift, 0.055 * math.sqrt(activity))
                 price += step
                 new_bid = round(price * 100)
