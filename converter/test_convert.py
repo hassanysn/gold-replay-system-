@@ -78,6 +78,28 @@ class ParsingTests(unittest.TestCase):
             self.assertEqual(d.count, 1)
 
 
+class RealExportTests(unittest.TestCase):
+    """Excerpt of a real MT5 tick export (broker symbol XAUUSD.m): UTF-8 without BOM, CRLF,
+    trade-only rows (flags 96) with no bid/ask, and bid-only rows (flags 98)."""
+
+    FIXTURE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tests", "fixtures", "mt5_xauusd_m_excerpt.csv")
+
+    def test_real_export_layout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            convert.convert([self.FIXTURE], tmp, "XAUUSD", None, False)
+            d = grbin.read_day(os.path.join(tmp, "XAUUSD", "2026-10-13.bin"))
+            rows = [ln.split("\t") for ln in open(self.FIXTURE, encoding="utf-8").read().splitlines()[1:]]
+            quoted = [r for r in rows if r[2] or r[3]]
+            self.assertEqual(d.digits, 2)
+            self.assertEqual(d.count, len(quoted))
+            self.assertEqual(d.times[0], convert.parse_time_ms("10:00:00.035"))
+            self.assertEqual((d.bids[0], d.asks[0]), (419180, 419206))
+            # a bid-only row keeps the previous ask
+            i = next(k for k, r in enumerate(quoted) if not r[3])
+            self.assertEqual(d.asks[i], d.asks[i - 1])
+            self.assertEqual(d.bids[i], convert.scale_price(quoted[i][2], 2))
+
+
 class RoundTripTests(unittest.TestCase):
     def test_sample_roundtrip_exact_and_rerun(self):
         with tempfile.TemporaryDirectory() as tmp:

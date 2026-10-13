@@ -16,7 +16,10 @@ app from this folder and opens the browser.
 3. Convert: drag the export file(s) onto **`convert.bat`**, or run
    `python converter\convert.py path\to\XAUUSD_ticks.csv`.
    This writes `data\XAUUSD\YYYY-MM-DD.bin` + `manifest.json`. Re-run it with new exports any
-   time; days already converted are skipped (`--force` replaces them).
+   time; days already converted are skipped (`--force` replaces them). Export **whole days**: if a
+   day was first converted from a partial export, convert the full-day export with `--force` (the
+   converter warns when tick counts differ). Broker suffixes like `XAUUSD.m` are fine; the data is
+   stored as `XAUUSD`.
 4. Double-click **`start.bat`**. The browser opens at `http://127.0.0.1:8765/`.
 5. Pick a start date and time (server time), press **Load**.
 
@@ -82,7 +85,7 @@ Open the app with `?debug` to get `window.__gr` (chart views, drawing store) in 
 
 | Phase | Status | Acceptance check |
 |---|---|---|
-| 1. Converter | done | Read-back of every written day is compared with the input (exact bid/ask, forward fill). Unit tests incl. an independent re-parse of the text. **Still needs a real MT5 export from you** (see questions) |
+| 1. Converter | done | Read-back of every written day is compared with the input. Verified on your real `XAUUSD.m` export (13 Oct 2026, 10:00–16:05): all 81,484 quotes reproduced exactly, 96 ask forward-fills, 26,970 trade-only rows (flags 96, no bid/ask) skipped, 0.9 s to convert. An excerpt is kept as a regression test |
 | 2. Replay + charts | done | Synthetic 6-day set: 6 day files (≈286k ticks each) load in 0.3–1.1 s in Chromium (target < 2 s). Speeds, steps, day rollover, weekend skip covered by tests |
 | 3. Orders + account | done | Bid/ask fills, margin/equity/margin level, margin rejection, stop-out → blown → New war account, settings page |
 | 4. Ladder Manager + panel | done | 30 engine tests covering every item in SPEC §6; panel, synced draggable lines checked in the browser |
@@ -95,9 +98,9 @@ Open the app with `?debug` to get `window.__gr` (chart views, drawing store) in 
 The spec says not to invent trading rules, so these are the places where I had to pick a
 behaviour. Each one is easy to change.
 
-1. **MT5 export format**: the parser maps columns by header name (`<DATE> <TIME> <BID> <ASK> ...`),
-   handles UTF-16/UTF-8, tab/comma/semicolon. It has only been tested on a synthetic file in that
-   layout. Please send a small real export (a few minutes of ticks) to verify.
+1. **MT5 export format** (verified): your export is UTF-8, tab separated, `<DATE> <TIME> <BID> <ASK>
+   <LAST> <VOLUME> <FLAGS>`. Rows with neither bid nor ask (MT5 flags 96, trade-only ticks) carry no
+   quote and are skipped; bid-only rows (flags 98) keep the previous ask.
 2. **Stop-out level** 50% is still the placeholder; confirm with your broker.
 3. **SL spread buffer (1 pip)**: applied as extra room when the manager sets an SL (buy SL 1 pip
    lower, sell SL 1 pip higher). So BE = avg + 1 − 1 = exactly average, stage 2 locks +19,
