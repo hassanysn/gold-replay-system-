@@ -1,0 +1,17 @@
+{
+ "symbol": "XAUUSD",
+ "digits": 2,
+ "timezone": "broker server time",
+ "days": [
+  {
+   "date": "2026-10-12",
+   "file": "2026-10-12.bin",
+   "ticks": 4,
+   "digits": 2,
+   "firstMs": 3600100,
+   "lastMs": 86219999,
+   "first": "01:00:00.100",
+   "last": "23:56:59.999"
+  }
+ ]
+}
