@@ -34,7 +34,7 @@ const H = 3_600_000;
 const M = 60_000;
 
 function setup(days: DayData[], ap = AP) {
-  const engine = new Engine({ ...DEFAULT_ACCOUNT, slBufferPips: 0 }, 10_000, 2);
+  const engine = new Engine({ ...DEFAULT_ACCOUNT, lotPer100: 0 }, 10_000, 2);
   const r = new Replay(manifestOf(days), engine, ap);
   days.forEach((d, i) => r.setDay(i, d));
   return r;
@@ -158,7 +158,7 @@ describe('replay', () => {
     r.start(0, d.dayStart + H + 500, 0);
     r.engine.placeOrder('buy', 0.1);
     expect(r.play(10 * M).pausedBy).toBe('Ticket filled'); // fills at 2000.3 (tick 1)
-    expect(r.play(10 * M).pausedBy).toBe('BE available (+30)');
+    expect(r.play(10 * M).pausedBy).toBe('BE allowed (+30)');
     expect(r.bid).toBeCloseTo(2003.3, 6); // fill at ask 2000.30 + 30 pips
     r.setZones([{ id: 'z', t1: d.dayStart, t2: d.dayStart + 1, low: 2004, high: 2005, extendRight: true }]);
     expect(r.play(10 * M).pausedBy).toBe('Price touched a zone');
@@ -217,7 +217,7 @@ describe('replay events', () => {
     r.engine.placeOrder('buy', 0.1);
     r.processNextTick();
     r.takeEvents();
-    r.engine.placeOrder('sell', 0.1);
+    r.engine.placeOrder('sell', 0); // invalid lot
     r.engine.closeLadder(1);
     const types = r.takeEvents().map((e) => e.type);
     expect(types).toEqual(['rejected', 'ladderClosed']);

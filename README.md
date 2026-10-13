@@ -37,7 +37,7 @@ python converter\convert.py sample_ticks.csv
 | Toolbar | Date/time + **Load**; **Play/Pause** (Space); speeds 1x 2x 5x 10x 60x; **+1 M1** (→); **Next M15 close** (Shift+→); drawing tools; HTF **M15/M30**; **Now** (End) scrolls to the current time |
 | Left chart | M15 or M30 for zones, PD arrays, trend |
 | Right chart | M1 with ticket entries, average entry, SL, TP and ask lines, fill/exit markers |
-| Panel | Movable (drag the title), `-`/`+` collapses it. Lot + SELL/BUY, balance/equity/margin level, New ladder, Close all, New war account, and one section per open ladder |
+| Panel | The EA panel: movable (drag the title), `-`/`+` collapses it. Lot + SELL/BUY, balance / cap / ladders, TOTAL IF SL HITS, NEW LADDER, Close all, New war account, per ladder the EA's lines + SL/TP + MOVE TO BE, unmanaged tickets, PLAN line |
 | Journal | Every closed ladder, with M1 screenshot at close (img), MFE, 4 h post-close run and a "why I closed" note |
 | Stats | Ladder / normal filter, date range, win rate, average R, % of move captured, ladders closed below 1R, CSV export |
 | Settings | Account (balance, leverage, contract size, commission, stop-out, SL buffer), auto-pause toggles, speed lock, server UTC offset |
@@ -46,9 +46,11 @@ python converter\convert.py sample_ticks.csv
 - **Orders** fill on the first tick at or after the click: buy at ask, sell at bid. Buy SL/TP trigger
   on bid, sell SL/TP on ask.
 - **SL/TP**: type a price in the ladder's SL/TP box and press Enter, or drag the SL/TP line on the M1
-  chart. Dragging the average-entry line creates an SL (loss side) or TP (profit side). Every change
-  applies to all tickets of that ladder; tickets for which the price is on the wrong side are skipped
-  with a notice.
+  chart. Dragging the average-entry line creates an SL (loss side) or TP (profit side). Like the EA,
+  your edit becomes the ladder SL/TP and is copied to every ticket; an edit on the wrong side of price
+  is rejected (MT5 would reject it); the ladder SL cannot be removed, only moved.
+- **Lot cap**: like the EA, a trade that takes a ladder over 0.10 lot per $100 of balance is closed
+  by the manager straight away (you lose the spread). The PLAN line warns "OVER CAP" before you trade.
 - **Drawings**: Rect (R), H-line (H), Text (T), Select (Esc). Click a drawing to select it; drag
   to move; drag a corner to resize; Delete removes it; double-click a label to edit it. Rectangles
   extend right by default (toggle "extend"). Drawings are saved per day in IndexedDB and appear on
@@ -88,37 +90,36 @@ Open the app with `?debug` to get `window.__gr` (chart views, drawing store) in 
 | 1. Converter | done | Read-back of every written day is compared with the input. Verified on your real `XAUUSD.m` export (13 Oct 2026, 10:00–16:05): all 81,484 quotes reproduced exactly, 96 ask forward-fills, 26,970 trade-only rows (flags 96, no bid/ask) skipped, 0.9 s to convert. An excerpt is kept as a regression test |
 | 2. Replay + charts | done | Synthetic 6-day set: 6 day files (≈286k ticks each) load in 0.3–1.1 s in Chromium (target < 2 s). Speeds, steps, day rollover, weekend skip covered by tests |
 | 3. Orders + account | done | Bid/ask fills, margin/equity/margin level, margin rejection, stop-out → blown → New war account, settings page |
-| 4. Ladder Manager + panel | done | 30 engine tests covering every item in SPEC §6; panel, synced draggable lines checked in the browser |
+| 4. Ladder Manager + panel | done | Port of the MT5 EA v3.0; 32 engine tests for the EA rules (stages, frozen average, BE, cap, gate, sync/wait, R); panel checked in the browser |
 | 5. Drawing tools | done | Rect/H-line/Text, select/move/resize/delete, HTF↔M1, saved per day, restored on reload |
 | 6. Auto-pause + speed lock | done | Zone touch, fill, SL, stages (each toggle), speed lock 1x/2x |
 | 7. Journal + stats + CSV | done | Auto-journal, MFE, 4 h post-close run (finished from data if you leave the session early), screenshot, note, stats, CSV |
 
-## Decisions that need your confirmation
+## Ladder Manager = the MT5 EA
 
-The spec says not to invent trading rules, so these are the places where I had to pick a
-behaviour. Each one is easy to change.
+The ladder logic is a port of your EA (`LadderManager.mqh` / `GoldLadderManager.mq5` v3.0), so the
+simulator does what the EA does on a real chart: stages 2/3 from the average (frozen at stage 2),
+MOVE TO BE at average +1 pip from +30, "manual always wins", the NEW LADDER gate, the hard lot cap
+(0.10 lot per $100 per ladder, excess closed), SL/TP sync with waiting/retry, opposite trades left
+unmanaged, R = worst IF SL HITS seen. Every difference that existed and how it was resolved is in
+**[EA_PARITY.md](EA_PARITY.md)**. EA inputs are on the Settings page.
+
+## Decisions that need your confirmation
 
 1. **MT5 export format** (verified): your export is UTF-8, tab separated, `<DATE> <TIME> <BID> <ASK>
    <LAST> <VOLUME> <FLAGS>`. Rows with neither bid nor ask (MT5 flags 96, trade-only ticks) carry no
    quote and are skipped; bid-only rows (flags 98) keep the previous ask.
 2. **Stop-out level** 50% is still the placeholder; confirm with your broker.
-3. **SL spread buffer (1 pip)**: applied as extra room when the manager sets an SL (buy SL 1 pip
-   lower, sell SL 1 pip higher). So BE = avg + 1 − 1 = exactly average, stage 2 locks +19,
-   stage 3 locks +49. Set the buffer to 0 in Settings for the plain +1/+20/+50.
-4. **R and added tickets**: R is frozen at the first SL set (on the tickets open then). Tickets added
-   later do not raise R unless the SL is widened before BE.
-5. **"Before BE"** = before the BE button was used and before stage 2/3 moved the SL.
-6. **Ladder vs normal**: each ladder has a type toggle in the panel (default "ladder"). It only
-   labels the journal/stats; management is identical.
-7. **New tickets inherit** the ladder's current SL/TP (skipped with a notice if invalid for them).
-8. **Active ladder closed while older ladders are still open**: the next ticket starts a new ladder.
-9. **Zone touch**: the bid enters a rectangle that is live at that time (extend-right rectangles stay
+3. **Broker stops level** defaults to 0 points. If your broker has one, set it in Settings: the EA's
+   step-back/waiting logic then behaves as on your account.
+4. **SPEC vs EA**: where they disagreed the EA wins (opposite trades are not blocked, the lot cap is
+   enforced, no ladder-type toggle). Unmanaged opposite tickets are journaled as type "normal".
+5. **Zone touch**: the bid enters a rectangle that is live at that time (extend-right rectangles stay
    live). It re-arms after price leaves the box.
-10. **Post-close run** is measured from the average entry (same baseline as MFE).
-    "% captured" = result pips / max(MFE, post-close run); losing trades give a negative value.
-11. **Closed below 1R** lists every ladder with result < 1R, losers included.
-12. **TP** is logged as its own exit reason (the spec lists SL / stage SL / manual / stop-out).
-13. **Manual close** fills at the current quote immediately (opens use the next tick, per the spec).
-14. **Gaps without ticks longer than 30 minutes** are skipped at every speed (day breaks, weekends).
-15. **Margin** uses each ticket's open price.
-16. **Server UTC offset** defaults to +2 (display only; set yours in Settings).
+6. **Post-close run** is measured from the average entry (same baseline as the spec MFE).
+   "% captured" = result pips / max(MFE, post-close run); losing trades give a negative value.
+7. **Closed below 1R** lists every ladder with net R < 1, losers included (net R = EA `net_R`).
+8. **Manual close** fills at the current quote immediately (opens use the next tick, per the spec).
+9. **Gaps without ticks longer than 30 minutes** are skipped at every speed (day breaks, weekends).
+10. **Margin** uses each ticket's open price.
+11. **Server UTC offset** defaults to +2 (display only; set yours in Settings).

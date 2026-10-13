@@ -3,7 +3,7 @@
 import type { Time } from 'lightweight-charts';
 import { type Bar, TF_MS, TF_NAMES, type TfName } from './core/candles';
 import type { Manifest } from './core/daydata';
-import { type JournalRecord, POST_CLOSE_TRACK_MS } from './core/engine';
+import { Engine, type EngineSnapshot, type JournalRecord, POST_CLOSE_TRACK_MS } from './core/engine';
 import { isoDate } from './core/stats';
 import { type Frame, type FromWorker, LOCKED_SPEEDS, SPEEDS, type ToWorker } from './worker/protocol';
 import SimWorker from './worker/sim.worker.ts?worker';
@@ -31,6 +31,10 @@ const pendingShots: string[] = [];
 
 const worker = new SimWorker();
 const send = (m: ToWorker) => worker.postMessage(m);
+
+function hasPositions(s: EngineSnapshot): boolean {
+  return s.ladders.some((l) => l.ticketCount > 0) || s.unmanaged.length > 0 || s.pendingOrders > 0;
+}
 
 // ------------------------------------------------------------------ toasts
 
@@ -75,12 +79,17 @@ interactions.push(
         return;
       }
       tradeLines.dragging = null;
-      const l = lastFrame?.snap.ladders.find((x) => x.id === hit.ladderId);
-      if (l && Math.abs(p - hit.price) >= 1 / 10 ** digits) {
-        // Dragging the average line creates an SL (loss side) or a TP (profit side).
-        const kind = hit.kind === 'avg' ? ((p < l.avg) === (l.dir === 'buy') ? 'sl' : 'tp') : hit.kind;
-        send({ type: kind === 'sl' ? 'setSL' : 'setTP', ladderId: hit.ladderId, price: p });
-      } else if (lastFrame) tradeLines.update(lastFrame.snap);
+      const snap = lastFrame?.snap;
+      const g =
+        hit.ladderId > 0
+          ? snap?.ladders.find((x) => x.id === hit.ladderId)
+          : snap?.unmanaged.map((t) => ({ ...t, avg: t.openPrice })).find((t) => t.id === -hit.ladderId);
+      if (g && g.dir && Math.abs(p - hit.price) >= 1 / 10 ** digits) {
+        // Dragging the average/entry line creates an SL (loss side) or a TP (profit side).
+        const kind = hit.kind === 'avg' ? ((p < g.avg) === (g.dir === 'buy') ? 'sl' : 'tp') : hit.kind;
+        if (hit.ladderId > 0) send({ type: kind === 'sl' ? 'setSL' : 'setTP', ladderId: hit.ladderId, price: p });
+        else send({ type: kind === 'sl' ? 'setTicketSL' : 'setTicketTP', ticketId: -hit.ladderId, price: p });
+      } else if (snap) tradeLines.update(snap);
     },
   }),
 );
@@ -162,7 +171,7 @@ $('stepM15').onclick = () => send({ type: 'step', tf: 'M15' });
 
 function startLoad() {
   if (!manifest) return;
-  if (lastFrame && (lastFrame.snap.ladders.length || lastFrame.snap.pendingOrders)) {
+  if (lastFrame && hasPositions(lastFrame.snap)) {
     if (!confirm('Open positions will be closed (manual close) before loading a new start point. Continue?')) return;
   }
   const date = $<HTMLSelectElement>('date').value;
@@ -198,7 +207,7 @@ function fmtClock(ms: number): string {
 function updateControls(f: Frame) {
   $('play').textContent = f.playing ? 'Pause' : 'Play';
   $('play').classList.toggle('on', f.playing);
-  const locked = settings.speedLock && f.snap.ladders.length > 0;
+  const locked = settings.speedLock && hasPositions(f.snap);
   for (const b of speedsEl.querySelectorAll<HTMLButtonElement>('.speed')) {
     const s = Number(b.dataset.speed);
     b.classList.toggle('on', s === f.speed);
@@ -231,8 +240,9 @@ function initPanel() {
       closeLadder: (ladderId) => send({ type: 'closeLadder', ladderId }),
       closeAll: () => send({ type: 'closeAll' }),
       newLadder: () => send({ type: 'newLadder' }),
-      cancelNewLadder: () => send({ type: 'cancelNewLadder' }),
-      setKind: (ladderId, kind) => send({ type: 'setKind', ladderId, kind }),
+      setTicketSL: (ticketId, price) => send({ type: 'setTicketSL', ticketId, price }),
+      setTicketTP: (ticketId, price) => send({ type: 'setTicketTP', ticketId, price }),
+      closeTicket: (ticketId) => send({ type: 'closeTicket', ticketId }),
       newWarAccount: () => {
         if (!session) {
           account = { balance: settings.account.startBalance, blown: false };
@@ -240,7 +250,7 @@ function initPanel() {
           toast(`New war account: balance $${account.balance}`);
           return;
         }
-        const open = lastFrame?.snap.ladders.length ? ' Open positions will be closed first.' : '';
+        const open = lastFrame && hasPositions(lastFrame.snap) ? ' Open positions will be closed first.' : '';
         if (confirm(`Start a new war account with $${settings.account.startBalance}? The journal is kept.${open}`)) {
           send({ type: 'newWarAccount', account: settings.account });
         }
@@ -350,7 +360,7 @@ function takeShots() {
 function onJournal(r: JournalRecord) {
   journal.push(r);
   void db.put('journal', r);
-  const exitText = { SL: 'SL', 'stage SL': 'SL', TP: 'TP', 'manual close': 'X', 'stop-out': 'SO' }[r.exitReason];
+  const exitText = { SL: 'SL', 'stage SL': 'SL', TP: 'TP', 'manual close': 'X', 'cap close': 'CAP', 'stop-out': 'SO' }[r.exitReason];
   const lastTicket = r.tickets[r.tickets.length - 1];
   if (lastTicket) {
     tradeLines.addMarker({
@@ -499,7 +509,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 window.addEventListener('beforeunload', (e) => {
-  if (lastFrame && (lastFrame.snap.ladders.length || lastFrame.snap.pendingOrders)) e.preventDefault();
+  if (lastFrame && hasPositions(lastFrame.snap)) e.preventDefault();
 });
 
 // ------------------------------------------------------------------ boot
@@ -509,23 +519,9 @@ async function boot() {
   account = await loadAccountState(settings);
   journal = await db.getAll<JournalRecord>('journal').catch(() => []);
   initPanel();
-  panel.update({
-    time: 0,
-    bid: NaN,
-    ask: NaN,
-    balance: account.balance,
-    equity: account.balance,
-    margin: 0,
-    freeMargin: account.balance,
-    marginLevel: null,
-    blown: account.blown,
-    ladders: [],
-    activeLadderId: null,
-    newLadderArmed: false,
-    canNewLadder: false,
-    openLadders: 0,
-    pendingOrders: 0,
-  });
+  const idle = new Engine(settings.account, account.balance, 2);
+  idle.blown = account.blown;
+  panel.update(idle.snapshot());
   showPage('chart');
   showHtf();
   setTool('select');

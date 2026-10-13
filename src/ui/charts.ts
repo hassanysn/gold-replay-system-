@@ -261,13 +261,18 @@ export class TradeLines {
       this.upsert(key, kind, ladderId, price, title);
     };
     if (Number.isFinite(snap.ask)) put('ask', 'ask', 0, snap.ask, 'ask');
-    for (const l of snap.ladders) {
-      const d = this.dragging && this.dragging.ladderId === l.id ? this.dragging : null;
-      put(`${l.id}:avg`, 'avg', l.id, l.avg, `L${l.id} avg`);
-      put(`${l.id}:sl`, 'sl', l.id, d?.kind === 'sl' ? d.price : l.sl, `L${l.id} SL`);
-      put(`${l.id}:tp`, 'tp', l.id, d?.kind === 'tp' ? d.price : l.tp, `L${l.id} TP`);
-      if (d?.kind === 'avg') put(`${l.id}:new`, d.price < l.avg === (l.dir === 'buy') ? 'sl' : 'tp', l.id, d.price, `L${l.id} new`);
-      for (const t of l.tickets) put(`t${t.id}`, 'ticket', l.id, t.openPrice, '');
+    // Ladder lines (master SL/TP). Unmanaged opposite tickets use ladderId = -ticketId.
+    const groups = [
+      ...snap.ladders.filter((l) => l.dir && l.ticketCount > 0).map((l) => ({ id: l.id, name: `L${l.rank}`, dir: l.dir!, avg: l.avg, sl: l.sl, tp: l.tp, tickets: l.tickets })),
+      ...snap.unmanaged.map((t) => ({ id: -t.id, name: `#${t.id}`, dir: t.dir, avg: t.openPrice, sl: t.sl, tp: t.tp, tickets: [] })),
+    ];
+    for (const g of groups) {
+      const d = this.dragging && this.dragging.ladderId === g.id ? this.dragging : null;
+      put(`${g.id}:avg`, 'avg', g.id, g.avg, `${g.name} ${g.id < 0 ? g.dir : 'avg'}`);
+      put(`${g.id}:sl`, 'sl', g.id, d?.kind === 'sl' ? d.price : g.sl, `${g.name} SL`);
+      put(`${g.id}:tp`, 'tp', g.id, d?.kind === 'tp' ? d.price : g.tp, `${g.name} TP`);
+      if (d?.kind === 'avg') put(`${g.id}:new`, d.price < g.avg === (g.dir === 'buy') ? 'sl' : 'tp', g.id, d.price, `${g.name} new`);
+      for (const t of g.tickets) put(`t${t.id}`, 'ticket', g.id, t.openPrice, '');
     }
     for (const [key, v] of this.lines) {
       if (!seen.has(key)) {

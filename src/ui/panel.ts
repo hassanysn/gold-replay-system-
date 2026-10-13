@@ -1,7 +1,9 @@
-// Movable Ticket Manager panel (mirrors the MT5 Ticket Manager v3). Keeps its own colours.
+// Movable Gold Ladder Manager panel - shows the same lines as the MT5 EA panel (GoldLadderManager.mq5):
+// balance / cap / ladders, TOTAL IF SL HITS, NEW LADDER, MOVE TO BE, per ladder the 5 page lines,
+// the PLAN line. All ladders are listed at once instead of < > pages. Keeps its own colours.
 
-import type { EngineSnapshot, LadderKind, LadderView } from '../core/engine';
-import type { Dir } from '../core/pips';
+import type { EngineSnapshot, LadderView, TicketView } from '../core/engine';
+import { PIP, type Dir } from '../core/pips';
 
 export interface PanelActions {
   order(dir: Dir, lot: number): void;
@@ -9,17 +11,18 @@ export interface PanelActions {
   setTP(ladderId: number, price: number | null): void;
   be(ladderId: number): void;
   closeLadder(ladderId: number): void;
+  setTicketSL(ticketId: number, price: number | null): void;
+  setTicketTP(ticketId: number, price: number | null): void;
+  closeTicket(ticketId: number): void;
   closeAll(): void;
   newLadder(): void;
-  cancelNewLadder(): void;
-  setKind(ladderId: number, kind: LadderKind): void;
   newWarAccount(): void;
   lotChanged(lot: number): void;
   moved(pos: { x: number; y: number; collapsed: boolean }): void;
 }
 
-const money = (v: number) => `${v < 0 ? '-' : ''}$${Math.abs(v).toFixed(2)}`;
-const signed = (v: number, d = 1) => `${v > 0 ? '+' : ''}${v.toFixed(d)}`;
+const money = (v: number) => `${v >= 0 ? '+$' : '-$'}${Math.abs(v).toFixed(2)}`;
+const usd = (v: number) => `${v < 0 ? '-' : ''}$${Math.abs(v).toFixed(2)}`;
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -28,97 +31,118 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
   return e;
 }
 
+/** Number input that applies on Enter (empty = none) and is not overwritten while focused. */
+function priceInput(digits: number, title: string, apply: (p: number | null) => void): HTMLInputElement {
+  const inp = el('input', 'price-in');
+  inp.type = 'number';
+  inp.step = (1 / 10 ** digits).toString();
+  inp.placeholder = 'none';
+  inp.title = title;
+  inp.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const v = inp.value.trim();
+      apply(v === '' ? null : Number(v));
+      inp.blur();
+    } else if (e.key === 'Escape') inp.blur();
+  });
+  return inp;
+}
+
+function setPrice(inp: HTMLInputElement, v: number | null, digits: number) {
+  if (document.activeElement !== inp) inp.value = v === null ? '' : v.toFixed(digits);
+}
+
 class LadderSection {
   root = el('div', 'ladder');
   private title = el('div', 'ladder-title');
-  private kindBtn = el('button', 'kind', 'ladder');
-  private f: Record<string, HTMLElement> = {};
-  private slIn = el('input');
-  private tpIn = el('input');
-  private beBtn = el('button', 'btn be', 'BE');
+  private l1 = el('div', 'line l1');
+  private l2 = el('div', 'line');
+  private l3 = el('div', 'line l3');
+  private l4 = el('div', 'line l4');
+  private l5 = el('div', 'line l5');
+  private slIn: HTMLInputElement;
+  private tpIn: HTMLInputElement;
+  private beBtn = el('button', 'btn be', 'MOVE TO BE');
   private closeBtn = el('button', 'btn close', 'Close ladder');
-  private warn = el('div', 'warn');
-  private kind: LadderKind = 'ladder';
 
   constructor(
     readonly id: number,
     a: PanelActions,
     digits: number,
   ) {
-    const head = el('div', 'ladder-head');
-    head.append(this.title, this.kindBtn);
-    this.kindBtn.title = 'Journal type: ladder or normal (normal trades never mix into ladder stats)';
-    this.kindBtn.onclick = () => a.setKind(id, this.kind === 'ladder' ? 'normal' : 'ladder');
-    const grid = el('div', 'grid');
-    const row = (label: string, key: string) => {
-      grid.append(el('span', 'lbl', label));
-      const v = el('span', 'val');
-      this.f[key] = v;
-      grid.append(v);
-    };
-    row('Tickets', 'tickets');
-    row('Lot', 'lot');
-    row('Avg entry', 'avg');
-    row('Pips', 'pips');
-    row('R ($)', 'R');
-    row('RR now', 'rr');
-    row('Stage', 'stage');
-    row('Locked $', 'locked');
-    row('Floating', 'floating');
-
-    const step = (1 / 10 ** digits).toString();
-    for (const [inp, lbl, set] of [
-      [this.slIn, 'SL', (p: number | null) => a.setSL(id, p)],
-      [this.tpIn, 'TP', (p: number | null) => a.setTP(id, p)],
-    ] as const) {
-      inp.type = 'number';
-      inp.step = step;
-      inp.placeholder = 'none';
-      inp.className = 'price-in';
-      inp.title = `${lbl} for every ticket of this ladder (Enter to apply, empty = remove)`;
-      inp.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          const v = inp.value.trim();
-          set(v === '' ? null : Number(v));
-          inp.blur();
-        } else if (e.key === 'Escape') inp.blur();
-      });
-      grid.append(el('span', 'lbl', lbl), inp);
-    }
+    this.slIn = priceInput(digits, 'Ladder SL - copied to every ticket (Enter)', (p) => a.setSL(id, p));
+    this.tpIn = priceInput(digits, 'Ladder TP - copied to every ticket (Enter, empty = none)', (p) => a.setTP(id, p));
+    const edits = el('div', 'edits');
+    edits.append(el('span', 'lbl', 'SL'), this.slIn, el('span', 'lbl', 'TP'), this.tpIn);
+    this.beBtn.title = 'Stage 1: SL = average entry + BE buffer, allowed from +BE minimum pips';
     this.beBtn.onclick = () => a.be(id);
     this.closeBtn.onclick = () => a.closeLadder(id);
     const btns = el('div', 'row');
     btns.append(this.beBtn, this.closeBtn);
-    this.root.append(head, grid, this.warn, btns);
+    this.root.append(this.title, this.l1, edits, this.l2, this.l3, this.l4, this.l5, btns);
   }
 
-  update(l: LadderView, digits: number) {
-    this.kind = l.kind;
+  update(l: LadderView, count: number, digits: number) {
+    const d = digits;
     this.root.classList.toggle('active', l.active);
-    this.title.innerHTML = '';
-    this.title.append(el('b', l.dir === 'buy' ? 'buy' : 'sell', l.dir.toUpperCase()), ` L${l.id}${l.active ? ' (active)' : ''}`);
-    this.kindBtn.textContent = l.kind;
-    this.kindBtn.classList.toggle('normal', l.kind === 'normal');
-    const f = this.f;
-    f.tickets.textContent = String(l.ticketCount);
-    const atSL = l.lockedAtSL === null ? 'no SL' : l.lockedAtSL >= 0 ? 'SL in profit' : `${(l.lossAtSLPct ?? 0).toFixed(1)}% loss at SL`;
-    f.lot.textContent = `${l.totalLot.toFixed(2)}  (${atSL})`;
-    f.avg.textContent = l.avg.toFixed(digits + 1);
-    f.pips.textContent = signed(l.pips);
-    f.pips.className = `val ${l.pips >= 0 ? 'pos' : 'neg'}`;
-    f.R.textContent = l.R === null ? '-' : money(l.R);
-    f.rr.textContent = l.rrNow === null ? '-' : `${signed(l.rrNow, 2)} R`;
-    f.rr.className = `val ${l.rrNow !== null && l.rrNow >= 0 ? 'pos' : 'neg'}`;
-    f.stage.textContent = l.stageLabel;
-    f.locked.textContent = l.lockedAtSL === null ? '-' : money(l.lockedAtSL);
-    f.locked.className = `val ${l.lockedAtSL !== null && l.lockedAtSL >= 0 ? 'pos' : 'neg'}`;
-    f.floating.textContent = money(l.floating);
-    f.floating.className = `val ${l.floating >= 0 ? 'pos' : 'neg'}`;
-    if (document.activeElement !== this.slIn) this.slIn.value = l.sl === null ? '' : l.sl.toFixed(digits);
-    if (document.activeElement !== this.tpIn) this.tpIn.value = l.tp === null ? '' : l.tp.toFixed(digits);
-    this.beBtn.disabled = !l.beEnabled;
-    this.beBtn.title = l.beApplied ? 'BE already set' : l.beEnabled ? 'Set SL to average +1 pip' : 'Available from +30 pips';
-    this.warn.textContent = l.lotWarning ? 'Warning: total lot above 0.1 per $50 of balance' : '';
+    this.title.textContent = `LADDER L${l.rank} of ${count}${l.tickets[0] ? `   opened ${new Date(l.tickets[0].openTime).toISOString().slice(11, 16)}` : ''}${l.active ? '   <- new trades' : ''}`;
+    const empty = l.ticketCount === 0;
+    for (const e of [this.l2, this.l4, this.l5]) e.hidden = empty;
+    this.slIn.disabled = this.tpIn.disabled = empty;
+    this.beBtn.disabled = empty || !l.beEnabled;
+    this.closeBtn.disabled = empty;
+    setPrice(this.slIn, l.sl, d);
+    setPrice(this.tpIn, l.tp, d);
+    if (empty) {
+      this.l1.textContent = l.stageText;
+      this.l3.textContent = '';
+      return;
+    }
+    this.l1.innerHTML = '';
+    this.l1.append(el('b', l.dir ?? '', (l.dir ?? '-').toUpperCase()), ` | ${l.ticketCount} ticket(s) ${l.totalLot.toFixed(2)} lot | worst entry ${l.worstEntry.toFixed(d)}`);
+    this.l2.textContent = `avg ${l.avg.toFixed(d)}  ${l.pips >= 0 ? '+' : ''}${l.pips.toFixed(1)} pips | ${l.beText}`;
+    this.l3.textContent = l.stageText;
+    if (l.ifSLHits === null) {
+      this.l4.textContent = 'IF SL HITS: NO SL - UNLIMITED LOSS';
+      this.l4.className = 'line l4 neg';
+    } else {
+      const r = l.ifSLHits;
+      this.l4.textContent = `IF SL HITS: ${money(r)}${l.ifSLHitsPct !== null ? ` = ${l.ifSLHitsPct.toFixed(1)}% of balance` : r >= 0 ? ' (locked)' : ''}`;
+      this.l4.className = `line l4 ${r >= 0 ? 'pos' : 'neg'}`;
+    }
+    let t5 = `IF CLOSED NOW: ${money(l.ifClosedNow)}`;
+    if (l.R !== null && l.rr !== null) t5 += ` = ${l.rr.toFixed(2)}R   (1R = $${l.R.toFixed(2)})${l.rr < 1 ? '   below 1R' : ''}`;
+    else t5 += '   (R unknown - no SL set yet)';
+    this.l5.textContent = t5;
+    this.beBtn.title = l.beEnabled ? 'Set SL to average + BE buffer' : l.beText;
+  }
+}
+
+class UnmanagedRow {
+  root = el('div', 'unmanaged-row');
+  private text = el('div', 'line');
+  private slIn: HTMLInputElement;
+  private tpIn: HTMLInputElement;
+
+  constructor(
+    readonly id: number,
+    a: PanelActions,
+    digits: number,
+  ) {
+    this.slIn = priceInput(digits, 'SL of this ticket only (Enter)', (p) => a.setTicketSL(id, p));
+    this.tpIn = priceInput(digits, 'TP of this ticket only (Enter)', (p) => a.setTicketTP(id, p));
+    const close = el('button', 'btn close', 'Close');
+    close.onclick = () => a.closeTicket(id);
+    const edits = el('div', 'edits');
+    edits.append(el('span', 'lbl', 'SL'), this.slIn, el('span', 'lbl', 'TP'), this.tpIn, close);
+    this.root.append(this.text, edits);
+  }
+
+  update(t: TicketView, digits: number) {
+    this.text.innerHTML = '';
+    this.text.append(el('b', t.dir, t.dir.toUpperCase()), ` #${t.id} ${t.lot.toFixed(2)} @ ${t.openPrice.toFixed(digits)}  `, el('span', t.floating >= 0 ? 'pos' : 'neg', usd(t.floating)));
+    setPrice(this.slIn, t.sl, digits);
+    setPrice(this.tpIn, t.tp, digits);
   }
 }
 
@@ -129,14 +153,21 @@ export class Panel {
   private lotIn = el('input');
   private buyBtn = el('button', 'btn buy', 'BUY');
   private sellBtn = el('button', 'btn sell', 'SELL');
-  private acct: Record<string, HTMLElement> = {};
-  private newLadderBtn = el('button', 'btn', 'New ladder');
+  private info = el('div', 'line info');
+  private acct = el('div', 'line muted-line');
+  private total = el('div', 'line total');
+  private newLadderBtn = el('button', 'btn new', 'NEW LADDER');
   private closeAllBtn = el('button', 'btn close', 'Close all');
   private warBtn = el('button', 'btn', 'New war account');
   private ladderBox = el('div', 'ladders');
+  private unmanagedBox = el('div', 'unmanaged');
+  private planPips = el('input');
+  private planLot = el('input');
+  private planText = el('div', 'line');
   private sections = new Map<number, LadderSection>();
-  private armed = false;
+  private rows = new Map<number, UnmanagedRow>();
   private collapsed = false;
+  private last: EngineSnapshot | null = null;
   digits = 2;
 
   constructor(
@@ -146,7 +177,7 @@ export class Panel {
     lot: number,
   ) {
     const head = el('div', 'panel-head');
-    head.append(el('span', 'panel-title', 'Ticket Manager'), this.collapseBtn);
+    head.append(el('span', 'panel-title', 'GOLD LADDER MANAGER'), this.collapseBtn);
     this.collapseBtn.title = 'Collapse / expand';
     this.collapseBtn.onclick = () => this.setCollapsed(!this.collapsed, true);
 
@@ -162,23 +193,42 @@ export class Panel {
     const orderRow = el('div', 'row order');
     orderRow.append(this.sellBtn, this.lotIn, this.buyBtn);
 
-    const acct = el('div', 'grid acct');
-    for (const [k, label] of [
-      ['balance', 'Balance'],
-      ['equity', 'Equity'],
-      ['ml', 'Margin level'],
-      ['free', 'Free margin'],
-    ]) {
-      acct.append(el('span', 'lbl', label));
-      this.acct[k] = el('span', 'val');
-      acct.append(this.acct[k]);
-    }
-    this.newLadderBtn.onclick = () => (this.armed ? a.cancelNewLadder() : a.newLadder());
+    this.newLadderBtn.onclick = () => a.newLadder();
     this.closeAllBtn.onclick = () => a.closeAll();
     this.warBtn.onclick = () => a.newWarAccount();
     const globalBtns = el('div', 'row');
     globalBtns.append(this.newLadderBtn, this.closeAllBtn, this.warBtn);
-    this.body.append(orderRow, acct, globalBtns, this.ladderBox);
+
+    // PLAN: avg stop pips + lot -> loss at SL $ and %
+    const saved = (() => {
+      try {
+        return JSON.parse(localStorage.getItem('gr-plan') ?? 'null') as { pips: number; lot: number } | null;
+      } catch {
+        return null;
+      }
+    })();
+    for (const [inp, v, step] of [
+      [this.planPips, saved?.pips ?? 50, '1'],
+      [this.planLot, saved?.lot ?? 0.05, '0.01'],
+    ] as const) {
+      inp.type = 'number';
+      inp.step = step;
+      inp.className = 'plan-in';
+      inp.value = String(v);
+      inp.onchange = () => {
+        try {
+          localStorage.setItem('gr-plan', JSON.stringify({ pips: Number(this.planPips.value), lot: Number(this.planLot.value) }));
+        } catch {
+          /* ignore */
+        }
+        if (this.last) this.updatePlan(this.last);
+      };
+    }
+    const plan = el('div', 'edits plan');
+    plan.append(el('span', 'lbl', 'PLAN  avg stop pips'), this.planPips, el('span', 'lbl', 'lot'), this.planLot);
+
+    this.unmanagedBox.append(el('div', 'ladder-title', 'UNMANAGED - opposite to your ladder(s), manage it yourself'));
+    this.body.append(orderRow, this.info, this.acct, this.total, globalBtns, this.ladderBox, this.unmanagedBox, plan, this.planText);
     this.root.append(head, this.body);
     host.append(this.root);
 
@@ -207,10 +257,8 @@ export class Panel {
       const sx = e.clientX - this.root.offsetLeft;
       const sy = e.clientY - this.root.offsetTop;
       const move = (m: MouseEvent) => {
-        const x = Math.min(Math.max(0, m.clientX - sx), window.innerWidth - 60);
-        const y = Math.min(Math.max(0, m.clientY - sy), window.innerHeight - 30);
-        this.root.style.left = `${x}px`;
-        this.root.style.top = `${y}px`;
+        this.root.style.left = `${Math.min(Math.max(0, m.clientX - sx), window.innerWidth - 60)}px`;
+        this.root.style.top = `${Math.min(Math.max(0, m.clientY - sy), window.innerHeight - 30)}px`;
       };
       const up = () => {
         window.removeEventListener('mousemove', move);
@@ -222,22 +270,41 @@ export class Panel {
     });
   }
 
+  private updatePlan(s: EngineSnapshot) {
+    const pips = Number(this.planPips.value);
+    const lot = Number(this.planLot.value);
+    if (!(pips > 0) || !(lot > 0)) {
+      this.planText.textContent = '';
+      return;
+    }
+    const loss = lot * s.contractSize * pips * PIP;
+    let t = `Loss at SL: -$${loss.toFixed(2)} = ${(s.balance > 0 ? (loss / s.balance) * 100 : 0).toFixed(1)}% of balance  ($${(loss / pips).toFixed(2)} per pip)`;
+    if (lot > s.lotCap + 1e-9) t += `  | OVER CAP ${s.lotCap.toFixed(2)}`;
+    this.planText.textContent = t;
+  }
+
   update(s: EngineSnapshot) {
+    this.last = s;
     const d = this.digits;
     this.buyBtn.textContent = Number.isFinite(s.ask) ? `BUY ${s.ask.toFixed(d)}` : 'BUY';
     this.sellBtn.textContent = Number.isFinite(s.bid) ? `SELL ${s.bid.toFixed(d)}` : 'SELL';
-    this.acct.balance.textContent = money(s.balance) + (s.blown ? '  BLOWN' : '');
-    this.acct.balance.className = `val ${s.blown ? 'neg' : ''}`;
-    this.acct.equity.textContent = money(s.equity);
-    this.acct.equity.className = `val ${s.equity >= s.balance ? 'pos' : 'neg'}`;
-    this.acct.ml.textContent = s.marginLevel === null ? '-' : `${s.marginLevel.toFixed(0)}%`;
-    this.acct.free.textContent = money(s.freeMargin);
-    this.armed = s.newLadderArmed;
-    this.newLadderBtn.disabled = !s.canNewLadder && !s.newLadderArmed;
-    this.newLadderBtn.textContent = s.newLadderArmed ? 'New ladder: next ticket (cancel)' : 'New ladder';
-    this.newLadderBtn.classList.toggle('armed', s.newLadderArmed);
-    this.newLadderBtn.title = 'Enabled when the active ladder has reached stage 2 (max 3 ladders)';
-    this.closeAllBtn.disabled = s.ladders.length === 0 && s.pendingOrders === 0;
+    const cap = Number.isFinite(s.lotCap) ? `${s.lotCap.toFixed(2)} lot per ladder` : 'none';
+    this.info.textContent = `Balance $${s.balance.toFixed(2)}${s.blown ? ' BLOWN' : ''}  |  cap ${cap}  |  ladders ${s.ladderCount} of 3`;
+    this.info.classList.toggle('neg', s.blown);
+    this.acct.textContent = `Equity ${usd(s.equity)}  |  margin level ${s.marginLevel === null ? '-' : `${s.marginLevel.toFixed(0)}%`}  |  free ${usd(s.freeMargin)}`;
+    if (s.totalIfSLHits === null) {
+      this.total.textContent = 'TOTAL IF SL HITS:  NO SL - UNLIMITED LOSS';
+      this.total.className = 'line total neg';
+    } else {
+      const r = s.totalIfSLHits;
+      const pct = s.balance > 0 ? (r / s.balance) * 100 : 0;
+      this.total.textContent = `TOTAL IF SL HITS:  ${money(r)}   (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%)`;
+      this.total.className = `line total ${r >= 0 ? 'pos' : 'neg'}`;
+    }
+    if (s.unmanaged.length) this.total.textContent += `  | ${s.unmanaged.length} unmanaged`;
+    this.newLadderBtn.classList.toggle('ready', s.canNewLadder);
+    this.newLadderBtn.title = s.canNewLadder ? 'Open a new ladder: your next trades join it' : `Refused now: ${s.newLadderWhy}`;
+    this.closeAllBtn.disabled = s.ladders.every((l) => l.ticketCount === 0) && s.unmanaged.length === 0 && s.pendingOrders === 0;
 
     const seen = new Set<number>();
     for (const l of s.ladders) {
@@ -248,7 +315,7 @@ export class Panel {
         this.sections.set(l.id, sec);
         this.ladderBox.append(sec.root);
       }
-      sec.update(l, d);
+      sec.update(l, s.ladderCount, d);
     }
     for (const [id, sec] of this.sections) {
       if (!seen.has(id)) {
@@ -256,5 +323,27 @@ export class Panel {
         this.sections.delete(id);
       }
     }
+    if (s.ladders.length === 0) this.ladderBox.dataset.empty = 'Open a trade to start L1';
+    else delete this.ladderBox.dataset.empty;
+
+    const seenT = new Set<number>();
+    for (const t of s.unmanaged) {
+      seenT.add(t.id);
+      let row = this.rows.get(t.id);
+      if (!row) {
+        row = new UnmanagedRow(t.id, this.a, d);
+        this.rows.set(t.id, row);
+        this.unmanagedBox.append(row.root);
+      }
+      row.update(t, d);
+    }
+    for (const [id, row] of this.rows) {
+      if (!seenT.has(id)) {
+        row.root.remove();
+        this.rows.delete(id);
+      }
+    }
+    this.unmanagedBox.hidden = s.unmanaged.length === 0;
+    this.updatePlan(s);
   }
 }

@@ -2,7 +2,7 @@
 
 import type { Bar, TfName } from '../core/candles';
 import type { Manifest } from '../core/daydata';
-import type { AccountSettings, EngineSnapshot, JournalRecord, LadderKind } from '../core/engine';
+import type { AccountSettings, EngineSnapshot, JournalRecord } from '../core/engine';
 import type { Dir } from '../core/pips';
 import type { AutoPauseSettings, Zone } from '../core/replay';
 
@@ -46,8 +46,9 @@ export type ToWorker =
   | { type: 'closeLadder'; ladderId: number }
   | { type: 'closeAll' }
   | { type: 'newLadder' }
-  | { type: 'cancelNewLadder' }
-  | { type: 'setKind'; ladderId: number; kind: LadderKind }
+  | { type: 'setTicketSL'; ticketId: number; price: number | null }
+  | { type: 'setTicketTP'; ticketId: number; price: number | null }
+  | { type: 'closeTicket'; ticketId: number }
   | { type: 'newWarAccount'; account: AccountSettings }
   | { type: 'settings'; account: AccountSettings; autoPause: AutoPauseSettings; speedLock: boolean }
   | { type: 'zones'; zones: Zone[] }
@@ -60,7 +61,7 @@ export interface UiEvent {
   price?: number;
   lot?: number;
   ticketId?: number;
-  ladderId?: number;
+  ladderId?: number | null;
 }
 
 export interface Frame {
