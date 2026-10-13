@@ -1,0 +1,5 @@
+node_modules/
+data/
+sample_ticks.csv
+*.tmp
+__pycache__/

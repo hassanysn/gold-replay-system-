@@ -1,0 +1,2 @@
+*.bat text eol=crlf
+app/** linguist-generated=true

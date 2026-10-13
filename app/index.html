@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gold Replay Simulator</title>
+    <link rel="icon" href="data:," />
+    <script type="module" crossorigin src="./assets/index-ujTCSH6h.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-fuGItvWS.css">
+  </head>
+  <body>
+    <header id="toolbar">
+      <div class="group">
+        <select id="date" title="Start date"></select>
+        <input id="time" type="time" step="60" value="08:00" title="Start time (server time)" />
+        <button id="load" class="btn primary">Load</button>
+      </div>
+      <div class="group">
+        <button id="play" class="btn" title="Play / pause (Space)">Play</button>
+        <span id="speeds"></span>
+        <button id="stepM1" class="btn" title="+1 M1 candle (Right arrow)">+1 M1</button>
+        <button id="stepM15" class="btn" title="Jump to next M15 close (Shift+Right)">Next M15 close</button>
+      </div>
+      <div id="clock" class="clock">-</div>
+      <div class="group" id="tools">
+        <button class="btn tool" data-tool="select" title="Select / move / resize (Esc)">Select</button>
+        <button class="btn tool" data-tool="rect" title="Rectangle zone (R)">Rect</button>
+        <button class="btn tool" data-tool="hline" title="Horizontal line (H)">H-line</button>
+        <button class="btn tool" data-tool="text" title="Text label (T)">Text</button>
+        <label class="check" id="extend-wrap" title="Rectangle extends to the right (zone stays live)"><input type="checkbox" id="extend" /> extend</label>
+        <button id="delDrawing" class="btn" title="Delete selected drawing (Delete)">Delete</button>
+      </div>
+      <div class="group">
+        <span class="muted">HTF</span>
+        <button class="btn htf" data-htf="M15">M15</button>
+        <button class="btn htf" data-htf="M30">M30</button>
+        <button id="now" class="btn" title="Scroll both charts to the current time (End)">Now</button>
+      </div>
+      <nav class="group">
+        <button class="btn nav" data-page="chart">Chart</button>
+        <button class="btn nav" data-page="journal">Journal</button>
+        <button class="btn nav" data-page="stats">Stats</button>
+        <button class="btn nav" data-page="settings">Settings</button>
+      </nav>
+    </header>
+    <main>
+      <section id="page-chart" class="charts">
+        <div class="chart-box"><div class="chart-label" id="htf-label">M15</div><div id="chart-htf" class="chart"></div></div>
+        <div class="chart-box"><div class="chart-label">M1</div><div id="chart-m1" class="chart"></div></div>
+        <div id="empty" class="empty"></div>
+      </section>
+      <section id="page-journal" class="page" hidden></section>
+      <section id="page-stats" class="page" hidden></section>
+      <section id="page-settings" class="page" hidden></section>
+    </main>
+    <div id="toasts"></div>
+    <div id="status" class="muted"></div>
+  </body>
+</html>
