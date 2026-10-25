@@ -61,6 +61,10 @@ syncCharts(htfView, m1View);
 const tradeLines = new TradeLines(m1View);
 const store = new DrawingStore();
 
+function replayNow(): number {
+  return lastFrame?.clock ?? 0;
+}
+
 function currentDay(): string {
   return lastFrame ? isoDate(lastFrame.clock) : session?.date ?? '1970-01-01';
 }
@@ -72,10 +76,12 @@ const prims = [htfView, m1View].map((v) => {
   return p;
 });
 interactions.push(
-  new Interaction(htfView, store, { currentDay, onToolDone: () => setTool('select') }),
+  new Interaction(htfView, store, { currentDay, onToolDone: () => setTool('select'), onCut: (ms) => cutAt(ms), now: replayNow }),
   new Interaction(m1View, store, {
     currentDay,
     onToolDone: () => setTool('select'),
+    onCut: (ms) => cutAt(ms),
+    now: replayNow,
     tradeLines,
     onTradeDrag: (hit, price, done) => {
       const p = Math.round(price * 10 ** digits) / 10 ** digits;
@@ -175,6 +181,9 @@ $('play').onclick = togglePlay;
 $('stepM1').onclick = () => send({ type: 'step', tf: 'M1' });
 $('stepM15').onclick = () => send({ type: 'step', tf: 'M15' });
 
+/** Cut drawings kept across the reload (a cut keeps what you drew; a normal Load reads them per day). */
+let keepDrawingsOnLoad = false;
+
 function startLoad() {
   if (!manifest) return;
   if (lastFrame && hasPositions(lastFrame.snap)) {
@@ -182,7 +191,35 @@ function startLoad() {
   }
   const date = $<HTMLSelectElement>('date').value;
   const time = $<HTMLInputElement>('time').value || '00:00';
-  localStorage.setItem('gr-start', JSON.stringify({ date, time }));
+  keepDrawingsOnLoad = false;
+  loadAt(date, time);
+}
+
+/** Scissors: restart the replay so the clicked candle is the last one shown. */
+function cutAt(ms: number) {
+  if (!manifest || !lastFrame) return;
+  if (ms === lastFrame.clock) {
+    toast('The replay is already at that candle.', 'info');
+    setTool('select');
+    return;
+  }
+  if (ms > lastFrame.clock) {
+    toast('Cut back to a finished candle that is already on the chart. To jump ahead, pick a date and press Load.', 'warn');
+    return;
+  }
+  if (hasPositions(lastFrame.snap) && !confirm('Open positions will be closed (manual close) before the cut. Continue?')) return;
+  const iso = new Date(ms).toISOString();
+  const date = iso.slice(0, 10);
+  const time = iso.slice(11, 19);
+  if (manifest.days.some((d) => d.date === date)) $<HTMLSelectElement>('date').value = date;
+  $<HTMLInputElement>('time').value = time.slice(0, 5);
+  setTool('select');
+  keepDrawingsOnLoad = true;
+  loadAt(date, time);
+}
+
+function loadAt(date: string, time: string) {
+  localStorage.setItem('gr-start', JSON.stringify({ date, time: time.slice(0, 5) }));
   setEmpty('Loading...');
   send({
     type: 'load',
@@ -424,10 +461,13 @@ async function onLoaded(msg: Extract<FromWorker, { type: 'loaded' }>) {
   m1View.setBars(bars.M1, 60);
   showHtf();
   // Drawings: those made up to this date (last 30 days), never ones made on later dates.
-  const from = isoDate(Date.parse(msg.date) - 30 * 86_400_000);
-  const items = await db.drawingsBetween<Drawing>(from, msg.date).catch(() => []);
-  store.setAll(items);
-  send({ type: 'zones', zones: zonesOf(items) });
+  // A cut keeps the drawings you have on the chart, like TradingView's replay.
+  if (!keepDrawingsOnLoad) {
+    const from = isoDate(Date.parse(msg.date) - 30 * 86_400_000);
+    store.setAll(await db.drawingsBetween<Drawing>(from, msg.date).catch(() => []));
+  }
+  keepDrawingsOnLoad = false;
+  send({ type: 'zones', zones: zonesOf(store.items) });
   applyFrame(msg.frame);
   m1View.chart.timeScale().setVisibleLogicalRange({ from: bars.M1.length - 150, to: bars.M1.length + 10 });
   htfView.chart.timeScale().setVisibleLogicalRange({ from: bars[settings.htf].length - 120, to: bars[settings.htf].length + 8 });
@@ -532,6 +572,7 @@ window.addEventListener('keydown', (e) => {
   } else if (e.key === 'r' || e.key === 'R') setTool('rect');
   else if (e.key === 'h' || e.key === 'H') setTool('hline');
   else if (e.key === 't' || e.key === 'T') setTool('text');
+  else if (e.key === 'c' || e.key === 'C') setTool(store.tool === 'cut' ? 'select' : 'cut');
 });
 
 window.addEventListener('beforeunload', (e) => {

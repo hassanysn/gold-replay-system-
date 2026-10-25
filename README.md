@@ -34,7 +34,7 @@ python converter\convert.py sample_ticks.csv
 
 | Area | What it does |
 |---|---|
-| Toolbar | Date/time + **Load**; **Play/Pause** (Space); speeds 1x 2x 5x 10x 60x; **+1 M1** (→); **Next M15 close** (Shift+→); drawing tools; HTF **M15/M30**; **Now** (End) scrolls to the current time |
+| Toolbar | Date/time + **Load**; **Play/Pause** (Space); speeds 1x 2x 5x 10x 60x; **+1 M1** (→); **Next M15 close** (Shift+→); **✂ Cut** (C); drawing tools; HTF **M15/M30**; **Now** (End) scrolls to the current time |
 | Left chart | M15 or M30 for zones, PD arrays, trend. Zoom/scroll is independent of M1; only the replay time (and Now/End) moves both |
 | Right chart | M1 like MT5: one grey dashed line per open ticket, the ladder's average line labelled "L1: 4 trades", SL, TP and ask lines, exit markers |
 | Panel | The EA panel: movable (drag the title), `-`/`+` collapses it. Lot + SELL/BUY, balance / cap / ladders, TOTAL IF SL HITS, NEW LADDER, Close all, New war account, per ladder the EA's lines + SL/TP + MOVE TO BE + setup tags, unmanaged tickets (no PLAN line: removed from the EA in v3.0-s5) |
@@ -43,6 +43,9 @@ python converter\convert.py sample_ticks.csv
 | Settings | Account (balance, leverage, contract size, commission, stop-out, stops level), EA inputs, auto-pause toggles (zone, SL, stage), speed lock, sounds on/off, server UTC offset |
 
 - **Nothing after the replay time is ever sent to the page.** The tick data lives in a Web Worker.
+- **✂ Cut** (C), like TradingView's replay scissors: hover a candle on either chart (the part that
+  will be hidden is shaded), click, and the replay restarts with that candle as the last one shown.
+  Your drawings stay. You can only cut back to a finished candle; to jump ahead, pick a date and Load.
 - **Orders** fill on the first tick at or after the click: buy at ask, sell at bid. Buy SL/TP trigger
   on bid, sell SL/TP on ask. A fill never pauses the replay (a real chart keeps moving); a zone touch,
   an SL hit and the management stages can (Settings).
