@@ -1,6 +1,6 @@
 // Journal, Stats and Settings pages.
 
-import type { JournalRecord, LadderKind } from '../core/engine';
+import { type JournalRecord, type LadderKind, stageCheck } from '../core/engine';
 import { availablePips, capturedPct, computeStats, filterRecords, fmtTime, toCSV } from '../core/stats';
 import * as db from './db';
 import type { AppSettings } from './settings';
@@ -11,6 +11,15 @@ function esc(s: string): string {
 
 const money = (v: number) => `${v < 0 ? '-' : ''}$${Math.abs(v).toFixed(2)}`;
 const cls = (v: number | null) => (v === null ? '' : v >= 0 ? 'pos' : 'neg');
+
+function closedBy(r: JournalRecord): string {
+  const c = r.closedBy;
+  if (!c) return '-';
+  return (['sl', 'tp', 'manager', 'you', 'other'] as const)
+    .filter((k) => c[k] > 0)
+    .map((k) => `${k} ${c[k]}`)
+    .join(', ');
+}
 
 function postClose(r: JournalRecord): string {
   if (r.postClosePips === null) return r.postCloseDone ? '-' : 'tracking...';
@@ -42,14 +51,20 @@ export class JournalPage {
       <td>${r.ticketCount}</td>
       <td>${r.avgEntry.toFixed(3)}</td>
       <td>${r.totalLot.toFixed(2)}</td>
+      <td>${r.ladderNo ? `L${r.ladderNo}` : '-'}</td>
+      <td>${r.worstEntry ?? '-'}</td>
       <td>${r.originalSL ?? '-'}</td>
       <td>${r.R === null ? '-' : money(r.R)}</td>
+      <td>${r.riskMax === null || r.riskMax === undefined ? '-' : money(r.riskMax)}</td>
+      <td>${r.slEdits ?? '-'}${r.slWidened ? ' (widened)' : ''}</td>
       <td>${r.highestStage}${r.beApplied ? ' (BE set)' : ''}</td>
       <td>${r.exitReason}</td>
+      <td>${closedBy(r)}</td>
       <td class="${cls(r.result)}">${money(r.result)}</td>
       <td class="${cls(r.resultR)}">${r.resultR === null ? '-' : r.resultR.toFixed(2)}</td>
       <td>${r.resultPips.toFixed(1)}</td>
       <td>${r.mfePips.toFixed(1)}</td>
+      <td>${r.mfePrice == null ? '-' : `${r.mfePrice.toFixed(2)} / ${r.maePrice?.toFixed(2)} / ${r.giveback?.toFixed(2)}`}</td>
       <td>${postClose(r)}</td>
       <td><textarea class="note" rows="2" placeholder="Why I closed">${esc(r.note)}</textarea></td>
     </tr>`,
@@ -58,8 +73,10 @@ export class JournalPage {
     this.root.innerHTML = `<h2>Journal <span class="muted">(${rs.length})</span></h2>
       <div class="table-wrap"><table class="journal">
       <thead><tr><th></th><th>Open / close</th><th>Dir</th><th>Type</th><th>Tickets</th><th>Avg entry</th><th>Lot</th>
-      <th>Original SL</th><th>R</th><th>Highest stage</th><th>Exit</th><th>Result</th><th>R</th><th>Pips</th>
-      <th>MFE pips</th><th>Post-close run (4h)</th><th>Note</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      <th>Ladder</th><th>Worst entry</th>
+      <th>First SL</th><th title="Risk at the first SL (EA risk_at_first_sl) - net R uses it">R</th><th title="Worst IF SL HITS seen (EA risk_max) - the panel's 1R">Risk max</th><th>SL edits</th>
+      <th>Highest stage</th><th>Exit</th><th>Closed by</th><th>Result</th><th>R</th><th>Pips</th>
+      <th>MFE pips</th><th title="EA journal: move from the worst entry, $ of price">MFE / MAE / giveback ($)</th><th>Post-close run (4h)</th><th>Note</th></tr></thead><tbody>${rows}</tbody></table></div>`;
     for (const tr of this.root.querySelectorAll<HTMLTableRowElement>('tr[data-id]')) {
       const id = tr.dataset.id!;
       const ta = tr.querySelector('textarea')!;
@@ -186,13 +203,23 @@ export class SettingsPage {
         ${num('s-contract', 'Contract size (oz per lot)', a.contractSize, '1')}
         ${num('s-commission', 'Commission ($ per lot, round turn)', a.commissionPerLot, '0.01')}
         ${num('s-stopout', 'Stop-out level (margin level %)', a.stopOutLevel, '1', 'Placeholder - confirm with your broker')}
-        ${num('s-buffer', 'SL spread buffer (pips)', a.slBufferPips, '0.1', 'Extra room added when the manager sets an SL (BE, stage 2, stage 3)')}
+        ${num('s-stops', 'Broker stops level (points)', a.stopsLevelPoints, '1', 'Minimum SL/TP distance from price (SYMBOL_TRADE_STOPS_LEVEL). 0 = none')}
+      </fieldset>
+      <fieldset><legend>Gold Ladder Manager (EA inputs, pips from the AVERAGE entry)</legend>
+        ${num('s-bemin', 'BE allowed from + pips', a.beMinPips, '1', 'InpBEMinPips: MOVE TO BE works only while price is this far in profit')}
+        ${num('s-bebuf', 'BE SL = average + pips', a.beBufferPips, '0.1', 'InpBEBufferPips')}
+        ${num('s-s2t', 'Stage 2 trigger pips', a.s2TrigPips, '1')}
+        ${num('s-s2l', 'Stage 2 lock pips', a.s2LockPips, '1', 'Stage 2: SL = average + lock. The average is frozen here for stage 3')}
+        ${num('s-s3t', 'Stage 3 trigger pips', a.s3TrigPips, '1')}
+        ${num('s-s3l', 'Stage 3 lock pips', a.s3LockPips, '1', 'After stage 3 the runner is yours: no more automatic moves')}
+        ${num('s-cap', 'Lot cap per ladder per $100 of balance', a.lotPer100, '0.01', 'Trades above the cap are closed by the manager. Changes only while no trade is open. 0 = no cap')}
+        ${num('s-retry', 'Retry cooldown (seconds)', a.retryCooldownSec, '1', 'Wait before retrying an SL/TP that could not be set yet')}
       </fieldset>
       <fieldset><legend>Auto-pause</legend>
         ${chk('ap-zone', 'Price touches a zone rectangle', s.autoPause.zone)}
         ${chk('ap-fill', 'A ticket fills', s.autoPause.fill)}
         ${chk('ap-sl', 'SL hit on any ticket', s.autoPause.sl)}
-        ${chk('ap-stage', 'Management stage reached (BE available, stage 2, stage 3)', s.autoPause.stage)}
+        ${chk('ap-stage', 'Management stage reached (BE allowed, stage 2, stage 3)', s.autoPause.stage)}
       </fieldset>
       <fieldset><legend>Replay</legend>
         ${chk('s-speedlock', 'Speed lock: only 1x and 2x while a ladder is open', s.speedLock)}
@@ -216,12 +243,25 @@ export class SettingsPage {
           contractSize: Math.max(1, v('s-contract', a.contractSize)),
           commissionPerLot: Math.max(0, v('s-commission', a.commissionPerLot)),
           stopOutLevel: Math.max(0, v('s-stopout', a.stopOutLevel)),
-          slBufferPips: Math.max(0, v('s-buffer', a.slBufferPips)),
+          stopsLevelPoints: Math.max(0, v('s-stops', a.stopsLevelPoints)),
+          beMinPips: v('s-bemin', a.beMinPips),
+          beBufferPips: v('s-bebuf', a.beBufferPips),
+          s2TrigPips: v('s-s2t', a.s2TrigPips),
+          s2LockPips: v('s-s2l', a.s2LockPips),
+          s3TrigPips: v('s-s3t', a.s3TrigPips),
+          s3LockPips: v('s-s3l', a.s3LockPips),
+          lotPer100: Math.max(0, v('s-cap', a.lotPer100)),
+          retryCooldownSec: Math.max(0, v('s-retry', a.retryCooldownSec)),
         },
         autoPause: { zone: c('ap-zone'), fill: c('ap-fill'), sl: c('ap-sl'), stage: c('ap-stage') },
         speedLock: c('s-speedlock'),
         serverUtcOffset: v('s-utc', s.serverUtcOffset),
       };
+      const why = stageCheck(next.account);
+      if (why) {
+        this.root.querySelector('#s-saved')!.textContent = `Not saved: ${why}`;
+        return;
+      }
       this.save(next);
       this.root.querySelector('#s-saved')!.textContent = 'Saved';
     };

@@ -34,7 +34,7 @@ export interface AdvanceResult {
   processed: number;
 }
 
-const STAGE_PAUSE = ['', 'BE available (+30)', 'Stage 2 reached (+50)', 'Stage 3 reached (+100)'];
+const STAGE_PAUSE = ['', 'BE allowed (+30)', 'Stage 2 reached (+50)', 'Stage 3 reached (+100)'];
 
 export class Replay {
   readonly candles: Record<TfName, CandleBuilder>;
@@ -239,6 +239,6 @@ export class Replay {
   }
 
   hasOpenLadder(): boolean {
-    return this.engine.openLadders().length > 0;
+    return this.engine.hasOpenPositions();
   }
 }

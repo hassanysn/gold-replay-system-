@@ -119,7 +119,8 @@ function drainEvents() {
         post({ type: 'postClose', entryId: ev.entryId, pips: ev.pips, done: ev.done });
         break;
       case 'notice':
-        notice(ev.text, 'warn');
+        // EA log line ([LM] ...): amber only when something was refused or needs your attention
+        notice(ev.text, /refused|Invalid|NOT managed|CAP |cannot|not allowed|IGNORED|Stop-out/.test(ev.text) ? 'warn' : 'info');
         break;
       case 'rejected':
         notice(ev.reason, 'warn');
@@ -351,11 +352,14 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       case 'newLadder':
         withReplay((r) => r.engine.newLadder());
         break;
-      case 'cancelNewLadder':
-        withReplay((r) => r.engine.cancelNewLadder());
+      case 'setTicketSL':
+        withReplay((r) => r.engine.setTicketSL(msg.ticketId, msg.price));
         break;
-      case 'setKind':
-        withReplay((r) => r.engine.setKind(msg.ladderId, msg.kind));
+      case 'setTicketTP':
+        withReplay((r) => r.engine.setTicketTP(msg.ticketId, msg.price));
+        break;
+      case 'closeTicket':
+        withReplay((r) => r.engine.closeUnmanaged(msg.ticketId));
         break;
       case 'newWarAccount':
         withReplay((r) => {
