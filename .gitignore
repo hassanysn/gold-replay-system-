@@ -3,3 +3,4 @@ data/
 sample_ticks.csv
 *.tmp
 __pycache__/
+journal/

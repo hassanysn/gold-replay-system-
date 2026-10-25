@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { JournalRecord } from '../src/core/engine';
-import { capturedPct, computeStats, filterRecords, toCSV } from '../src/core/stats';
+import { capturedPct, computeStats, filterRecords, journalTable, toCSV } from '../src/core/stats';
 
 function rec(p: Partial<JournalRecord>): JournalRecord {
   return {
@@ -39,6 +39,7 @@ function rec(p: Partial<JournalRecord>): JournalRecord {
     maePrice: null,
     giveback: null,
     balanceBefore: 50,
+    tags: { session: 'London', pdArray: 'FVG', htfTrend: 'with', confirmation: 'deep', zonePips: 40, avgStopPips: 35, ruleFollowed: 'yes' },
     note: '',
     ...p,
   };
@@ -66,6 +67,12 @@ describe('stats', () => {
     expect(capturedPct(rs[2])).toBe(-400);
     expect(s.capturedPct).toBeCloseTo((50 + 10 - 400) / 3, 9);
     expect(s.belowOneR.map((r) => r.id)).toEqual(['b', 'c']);
+  });
+
+  it('builds one table for CSV and Excel with tags, closed below 1R and the chart image name', () => {
+    const t = journalTable([rs[1]]);
+    const row = Object.fromEntries(t.header.map((h, i) => [h, t.rows[0][i]]));
+    expect(row).toMatchObject({ session: 'London', pd_array: 'FVG', zone_size_pips: 40, result_R: 0.5, closed_below_1R: 'yes', result_usd: 10, chart_image: 'images/b.png', highest_stage: 'none', post_close_run_pips: 100 });
   });
 
   it('exports CSV with quoting', () => {

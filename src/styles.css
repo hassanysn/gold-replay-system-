@@ -98,8 +98,6 @@ fieldset .check { display: flex; margin: 4px 0; }
 .panel .edits { display: flex; gap: 6px; align-items: center; margin: 3px 0; }
 .panel .edits .price-in { width: 92px; }
 .panel .edits .btn { flex: 0 0 auto; }
-.panel .plan-in { width: 64px; background: #111; color: #fff; border-color: #474d57; padding: 1px 4px; }
-.panel .plan { margin-top: 10px; }
 .panel .btn.new { border-color: #2e8b57; }
 .panel .btn.new.ready { background: #2e8b57; color: #fff; }
 .panel .btn.be { border-color: #4682b4; }
@@ -107,3 +105,17 @@ fieldset .check { display: flex; margin: 4px 0; }
 .panel .ladders[data-empty]::before { content: attr(data-empty); color: #9aa3ad; display: block; margin-top: 6px; }
 .panel .unmanaged { border: 1px dashed #b5541a; border-radius: 5px; padding: 6px; margin-top: 8px; }
 .panel .unmanaged-row { border-top: 1px solid #3a4049; padding-top: 4px; margin-top: 4px; }
+
+/* setup tags */
+.tag-editor { display: grid; grid-template-columns: auto 1fr; gap: 3px 8px; align-items: center; margin-top: 4px; }
+.tag-editor select, .tag-editor input { min-width: 0; width: 100%; }
+.panel details.tags { margin-top: 6px; border-top: 1px solid #3a4049; padding-top: 4px; }
+.panel details.tags summary { cursor: pointer; color: #c9a227; }
+.panel .tag-editor label { color: #9aa3ad; }
+.panel .tag-editor select, .panel .tag-editor input { background: #111; color: #fff; border-color: #474d57; padding: 1px 4px; }
+#tag-cards { position: fixed; right: 12px; bottom: 30px; z-index: 45; display: flex; flex-direction: column; gap: 8px; }
+.tag-card { width: 300px; background: #fff; border: 1px solid #c8c8c8; border-radius: 6px; padding: 10px; box-shadow: 0 4px 16px rgba(0,0,0,.25); }
+.tag-card-title { font-weight: 600; margin-bottom: 4px; }
+.tag-card-buttons { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+td.setup { white-space: normal !important; min-width: 180px; }
+.tags-btn { font-size: 11px; padding: 0 6px; }

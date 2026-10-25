@@ -396,6 +396,49 @@ describe('R, IF SL HITS, IF CLOSED NOW', () => {
   });
 });
 
+describe('verification: BE level and R after BE (enhancement list item 5)', () => {
+  it('MOVE TO BE puts the SL at exactly average +1 pip (buy and sell, several tickets)', () => {
+    const b = mk();
+    open(b.e, b.tick, 'buy', 0.01, 2000); // 2000.20
+    open(b.e, b.tick, 'buy', 0.02, 1999); // 1999.20 -> avg 1999.5333
+    b.tick(2002.6); // +30.7 from the average
+    expect(b.e.applyBE(1)).toBe(true);
+    expect(b.e.ladder(1)!.tickets.map((t) => t.sl)).toEqual([1999.63, 1999.63]); // 1999.5333 + 0.10, rounded to 2 digits
+    const s = mk();
+    open(s.e, s.tick, 'sell', 0.01, 2000); // 2000.00
+    s.tick(1996.8, 1997.0);
+    expect(s.e.applyBE(1)).toBe(true);
+    expect(s.e.ladder(1)!.sl).toBe(1999.9);
+  });
+
+  it('after BE, IF CLOSED NOW keeps the original R (only widening or added tickets make R larger)', () => {
+    const { e, tick } = mk();
+    open(e, tick, 'buy', 0.1, 2000); // 2000.20
+    e.setSL(1, 1998.2); // IF SL HITS -20 -> 1R = $20
+    tick(2003.2); // +30
+    e.applyBE(1); // IF SL HITS now +1
+    tick(2004.2);
+    const v = e.snapshot().ladders[0];
+    expect(v.ifSLHits).toBeCloseTo(1, 6);
+    expect(v.R).toBeCloseTo(20, 6);
+    expect(v.rr).toBeCloseTo(2, 6); // +$40 / $20
+  });
+});
+
+describe('tags and close events', () => {
+  it('keeps your setup tags with the journal row and emits a close event per ticket', () => {
+    const { e, tick } = mk();
+    open(e, tick, 'buy', 0.01, 2000);
+    open(e, tick, 'buy', 0.01, 2000);
+    e.setTags(1, { session: 'London', zonePips: 40 });
+    e.setTags(1, { pdArray: 'FVG' });
+    e.closeLadder(1);
+    const ev = e.takeEvents();
+    expect(ev.filter((x) => x.type === 'closed').length).toBe(2);
+    expect(closed(ev)!.record.tags).toMatchObject({ session: 'London', pdArray: 'FVG', zonePips: 40, htfTrend: '' });
+  });
+});
+
 describe('settings check', () => {
   it('uses the EA input order rules', () => {
     expect(stageCheck(DEFAULT_ACCOUNT)).toBe('');

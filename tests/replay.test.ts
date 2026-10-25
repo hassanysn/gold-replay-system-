@@ -29,7 +29,7 @@ function manifestOf(days: DayData[]): ManifestDay[] {
   return days.map((d) => ({ date: d.date, file: `${d.date}.bin`, ticks: d.count, digits: 2, firstMs: d.times[0], lastMs: d.times[d.count - 1] }));
 }
 
-const AP = { zone: true, fill: true, sl: true, stage: true };
+const AP = { zone: true, sl: true, stage: true };
 const H = 3_600_000;
 const M = 60_000;
 
@@ -150,15 +150,16 @@ describe('replay', () => {
     expect(r.engine.ladders[0].tickets[0].openPrice).toBe(2002.2);
   });
 
-  it('auto-pauses on fill, SL, stage and zone touch (each can be turned off)', () => {
+  it('never pauses on a fill; auto-pauses on stage and zone touch (each can be turned off)', () => {
     const rows: [number, number, number][] = [];
     for (let i = 0; i < 200; i++) rows.push([H + i * 1000, 2000 + i * 0.1, 2000.2 + i * 0.1]);
     const d = day('2026-10-09', rows);
     const r = setup([d]);
     r.start(0, d.dayStart + H + 500, 0);
     r.engine.placeOrder('buy', 0.1);
-    expect(r.play(10 * M).pausedBy).toBe('Ticket filled'); // fills at 2000.3 (tick 1)
+    // fills at 2000.3 on tick 1 and keeps running, like a real chart
     expect(r.play(10 * M).pausedBy).toBe('BE allowed (+30)');
+    expect(r.engine.openTickets()[0].openPrice).toBeCloseTo(2000.3, 6);
     expect(r.bid).toBeCloseTo(2003.3, 6); // fill at ask 2000.30 + 30 pips
     r.setZones([{ id: 'z', t1: d.dayStart, t2: d.dayStart + 1, low: 2004, high: 2005, extendRight: true }]);
     expect(r.play(10 * M).pausedBy).toBe('Price touched a zone');
@@ -192,7 +193,7 @@ describe('replay', () => {
         rows.push([H + i * 700, +p.toFixed(2), +(p + 0.25).toFixed(2)]);
       }
       const d = day('2026-10-09', rows);
-      const r = setup([d], { zone: false, fill: false, sl: false, stage: false });
+      const r = setup([d], { zone: false, sl: false, stage: false });
       r.start(0, d.dayStart + H + 1, 0);
       r.engine.placeOrder('buy', 0.05);
       r.play(60_000);
@@ -220,6 +221,6 @@ describe('replay events', () => {
     r.engine.placeOrder('sell', 0); // invalid lot
     r.engine.closeLadder(1);
     const types = r.takeEvents().map((e) => e.type);
-    expect(types).toEqual(['rejected', 'ladderClosed']);
+    expect(types).toEqual(['rejected', 'closed', 'ladderClosed']);
   });
 });

@@ -10,15 +10,18 @@ export interface AppSettings {
   serverUtcOffset: number;
   htf: 'M15' | 'M30';
   lot: number;
+  /** Trade open / close / zone alert sounds. */
+  sound: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   account: { ...DEFAULT_ACCOUNT },
-  autoPause: { zone: true, fill: true, sl: true, stage: true },
+  autoPause: { zone: true, sl: true, stage: true },
   speedLock: true,
   serverUtcOffset: 2,
   htf: 'M15',
   lot: 0.01,
+  sound: true,
 };
 
 /** Persistent war-account state (survives reloads; reset by "New war account"). */

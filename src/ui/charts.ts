@@ -25,7 +25,7 @@ export const CHART_COLORS = {
   avg: '#1559c1',
   sl: '#7b1fa2',
   tp: '#a05a00',
-  ticket: '#8a9aa6',
+  ticket: '#6f6f6f',
   ask: '#b0b0b0',
   marker: '#1559c1',
   exit: '#333333',
@@ -42,8 +42,6 @@ export class ChartView {
   readonly series: ISeriesApi<'Candlestick'>;
   bars: Bar[] = [];
   tfSec: number;
-  /** Set while the user scrolls/zooms this chart, so only user moves are mirrored to the other chart. */
-  userActiveUntil = 0;
 
   constructor(
     readonly el: HTMLElement,
@@ -74,10 +72,6 @@ export class ChartView {
       priceLineColor: '#555555',
       priceFormat: { type: 'price', precision: digits, minMove: 1 / 10 ** digits },
     });
-    const mark = () => (this.userActiveUntil = performance.now() + 400);
-    el.addEventListener('wheel', mark, { passive: true });
-    el.addEventListener('mousedown', mark);
-    el.addEventListener('mousemove', (e) => e.buttons && mark());
   }
 
   setBars(bars: Bar[], tfSec: number) {
@@ -174,7 +168,8 @@ export class ChartView {
   }
 }
 
-/** Mirrors crosshair and user scrolling between the HTF and M1 charts. */
+/** Mirrors the crosshair between the HTF and M1 charts. Zoom and scroll stay independent: only the
+ *  replay time (and the Now / End key) moves both charts. */
 export function syncCharts(a: ChartView, b: ChartView) {
   let syncing = false;
   const crosshair = (from: ChartView, to: ChartView) => {
@@ -197,22 +192,6 @@ export function syncCharts(a: ChartView, b: ChartView) {
   };
   crosshair(a, b);
   crosshair(b, a);
-  const range = (from: ChartView, to: ChartView) => {
-    from.chart.timeScale().subscribeVisibleLogicalRangeChange((r) => {
-      const now = performance.now();
-      if (syncing || !r || now > from.userActiveUntil || now < to.userActiveUntil) return;
-      const rightTime = from.logicalToTime(r.to);
-      const toRange = to.chart.timeScale().getVisibleLogicalRange();
-      const idx = to.timeToLogical(rightTime);
-      if (!toRange || idx === null) return;
-      const width = toRange.to - toRange.from;
-      syncing = true;
-      to.chart.timeScale().setVisibleLogicalRange({ from: idx - width, to: idx });
-      syncing = false;
-    });
-  };
-  range(a, b);
-  range(b, a);
 }
 
 type LineKind = 'avg' | 'sl' | 'tp' | 'ticket' | 'ask';
@@ -225,7 +204,7 @@ export interface TradeLineHit {
 
 /** Average entry, SL, TP and ticket lines plus fill/exit markers on the M1 chart. */
 export class TradeLines {
-  private lines = new Map<string, { line: IPriceLine; kind: LineKind; ladderId: number; price: number }>();
+  private lines = new Map<string, { line: IPriceLine; kind: LineKind; ladderId: number; price: number; title: string }>();
   private markers: ISeriesMarkersPluginApi<Time>;
   private markerList: SeriesMarker<Time>[] = [];
   /** Ladder/kind being dragged: its line follows the mouse instead of the engine value. */
@@ -240,17 +219,18 @@ export class TradeLines {
       avg: { color: CHART_COLORS.avg, lineWidth: 2, lineStyle: LineStyle.Solid, axisLabelVisible: true },
       sl: { color: CHART_COLORS.sl, lineWidth: 2, lineStyle: LineStyle.Dashed, axisLabelVisible: true },
       tp: { color: CHART_COLORS.tp, lineWidth: 2, lineStyle: LineStyle.Dashed, axisLabelVisible: true },
-      ticket: { color: CHART_COLORS.ticket, lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false },
+      ticket: { color: CHART_COLORS.ticket, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false },
       ask: { color: CHART_COLORS.ask, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true },
     }[kind];
     const existing = this.lines.get(key);
     if (existing) {
-      if (existing.price !== price) existing.line.applyOptions({ price, title });
+      if (existing.price !== price || existing.title !== title) existing.line.applyOptions({ price, title });
       existing.price = price;
+      existing.title = title;
       return;
     }
     const line = this.view.series.createPriceLine({ price, title, ...style } as never);
-    this.lines.set(key, { line, kind, ladderId, price });
+    this.lines.set(key, { line, kind, ladderId, price, title });
   }
 
   update(snap: EngineSnapshot) {
@@ -268,7 +248,8 @@ export class TradeLines {
     ];
     for (const g of groups) {
       const d = this.dragging && this.dragging.ladderId === g.id ? this.dragging : null;
-      put(`${g.id}:avg`, 'avg', g.id, g.avg, `${g.name} ${g.id < 0 ? g.dir : 'avg'}`);
+      const n = g.tickets.length;
+      put(`${g.id}:avg`, 'avg', g.id, g.avg, g.id < 0 ? `${g.name} ${g.dir}` : `${g.name}: ${n} trade${n === 1 ? '' : 's'}`);
       put(`${g.id}:sl`, 'sl', g.id, d?.kind === 'sl' ? d.price : g.sl, `${g.name} SL`);
       put(`${g.id}:tp`, 'tp', g.id, d?.kind === 'tp' ? d.price : g.tp, `${g.name} TP`);
       if (d?.kind === 'avg') put(`${g.id}:new`, d.price < g.avg === (g.dir === 'buy') ? 'sl' : 'tp', g.id, d.price, `${g.name} new`);

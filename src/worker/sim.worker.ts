@@ -127,6 +127,10 @@ function drainEvents() {
         break;
       case 'autopause':
         notice(`Auto-pause: ${ev.reason}`, 'pause');
+        if (ev.reason === 'Price touched a zone') uiEvents.push({ type: 'zonePause', time: replay.clock });
+        break;
+      case 'closed':
+        uiEvents.push({ type: 'close', time: replay.clock, ticketId: ev.ticketId });
         break;
       case 'fill':
         uiEvents.push({ type: 'fill', time: ev.ticket.openTime, dir: ev.ticket.dir, price: ev.ticket.openPrice, lot: ev.ticket.lot, ticketId: ev.ticket.id, ladderId: ev.ticket.ladderId });
@@ -357,6 +361,9 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
         break;
       case 'setTicketTP':
         withReplay((r) => r.engine.setTicketTP(msg.ticketId, msg.price));
+        break;
+      case 'setTags':
+        withReplay((r) => r.engine.setTags(msg.ladderId, msg.tags));
         break;
       case 'closeTicket':
         withReplay((r) => r.engine.closeUnmanaged(msg.ticketId));

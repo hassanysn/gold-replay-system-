@@ -2,7 +2,7 @@
 
 import type { Bar, TfName } from '../core/candles';
 import type { Manifest } from '../core/daydata';
-import type { AccountSettings, EngineSnapshot, JournalRecord } from '../core/engine';
+import type { AccountSettings, EngineSnapshot, JournalRecord, SetupTags } from '../core/engine';
 import type { Dir } from '../core/pips';
 import type { AutoPauseSettings, Zone } from '../core/replay';
 
@@ -49,13 +49,14 @@ export type ToWorker =
   | { type: 'setTicketSL'; ticketId: number; price: number | null }
   | { type: 'setTicketTP'; ticketId: number; price: number | null }
   | { type: 'closeTicket'; ticketId: number }
+  | { type: 'setTags'; ladderId: number; tags: SetupTags }
   | { type: 'newWarAccount'; account: AccountSettings }
   | { type: 'settings'; account: AccountSettings; autoPause: AutoPauseSettings; speedLock: boolean }
   | { type: 'zones'; zones: Zone[] }
   | { type: 'finalizePostClose'; items: PostCloseScan[] };
 
 export interface UiEvent {
-  type: 'fill' | 'sl' | 'tp' | 'stage' | 'zone' | 'stopout';
+  type: 'fill' | 'close' | 'sl' | 'tp' | 'stage' | 'zone' | 'zonePause' | 'stopout';
   time: number;
   dir?: Dir;
   price?: number;

@@ -19,6 +19,34 @@ export type ClosedBy = 'sl' | 'tp' | 'manager' | 'you' | 'other';
 export type Stage = 0 | 1 | 2 | 3;
 
 export const STAGE_NAMES = ['none', 'BE', 'Stage 2', 'Stage 3'] as const;
+
+/** Setup tags you choose per ladder (dropdowns + two numbers), saved with the journal row. */
+export interface SetupTags {
+  session: '' | 'Asia' | 'London' | 'NY';
+  pdArray: '' | 'FVG' | 'Order block' | 'Origin';
+  /** HTF trend, rule of 4 */
+  htfTrend: '' | 'with' | 'against';
+  confirmation: '' | 'early' | 'deep';
+  zonePips: number | null;
+  avgStopPips: number | null;
+  ruleFollowed: '' | 'yes' | 'no';
+}
+
+export const TAG_OPTIONS = {
+  session: ['Asia', 'London', 'NY'],
+  pdArray: ['FVG', 'Order block', 'Origin'],
+  htfTrend: ['with', 'against'],
+  confirmation: ['early', 'deep'],
+  ruleFollowed: ['yes', 'no'],
+} as const;
+
+export const EMPTY_TAGS: SetupTags = { session: '', pdArray: '', htfTrend: '', confirmation: '', zonePips: null, avgStopPips: null, ruleFollowed: '' };
+
+/** True when every tag has a value. */
+export function tagsComplete(t: SetupTags | undefined): boolean {
+  if (!t) return false;
+  return !!(t.session && t.pdArray && t.htfTrend && t.confirmation && t.ruleFollowed) && t.zonePips !== null && t.avgStopPips !== null;
+}
 export const MAX_OPEN_LADDERS = 3; // LM_MAX
 export const POST_CLOSE_TRACK_MS = 4 * 60 * 60 * 1000;
 
@@ -147,6 +175,7 @@ export interface Ladder {
   /** Spec: best favourable pips from the (stage) average while open. */
   mfePips: number;
   exitReason: ExitReason | null;
+  tags: SetupTags;
 }
 
 export interface JournalTicket {
@@ -200,6 +229,7 @@ export interface JournalRecord {
   balanceBefore: number;
   balanceAfter: number;
   note: string;
+  tags: SetupTags;
 }
 
 export type EngineEvent =
@@ -208,6 +238,7 @@ export type EngineEvent =
   | { type: 'sl'; ladderId: number | null; ticketIds: number[]; reason: ExitReason }
   | { type: 'tp'; ladderId: number | null; ticketIds: number[] }
   | { type: 'stage'; ladderId: number; stage: Stage }
+  | { type: 'closed'; ticketId: number; reason: ExitReason; by: ClosedBy }
   | { type: 'stopout' }
   | { type: 'ladderClosed'; record: JournalRecord }
   | { type: 'postClose'; entryId: string; pips: number | null; done: boolean }
@@ -278,6 +309,7 @@ export interface LadderView {
   R: number | null;
   rr: number | null;
   mfePips: number;
+  tags: SetupTags;
   tickets: TicketView[];
 }
 
@@ -560,6 +592,7 @@ export class Engine {
     t.closedBy = by;
     t.profit = round2(gross - this.settings.commissionPerLot * t.lot);
     this.balance = round2(this.balance + t.profit);
+    this.emit({ type: 'closed', ticketId: t.id, reason, by });
     if (t.ladderId === null) this.journalNormal(t);
   }
 
@@ -757,9 +790,16 @@ export class Engine {
       refLast: null,
       mfePips: -Infinity,
       exitReason: null,
+      tags: { ...EMPTY_TAGS },
     };
     this.ladders.push(l);
     return l;
+  }
+
+  /** Your setup tags for a ladder (kept with its journal row). */
+  setTags(ladderId: number, tags: Partial<SetupTags>): void {
+    const l = this.ladder(ladderId);
+    if (l) l.tags = { ...l.tags, ...tags };
   }
 
   closeLadder(ladderId: number): void {
@@ -1126,6 +1166,7 @@ export class Engine {
       balanceBefore: l.balBefore,
       balanceAfter: this.balance,
       note: '',
+      tags: { ...l.tags },
     };
   }
 
@@ -1170,6 +1211,7 @@ export class Engine {
       balanceBefore: round2(this.balance - result),
       balanceAfter: this.balance,
       note: '',
+      tags: { ...EMPTY_TAGS },
     };
     this.trackers.push({ entryId: record.id, dir: t.dir, avg: t.openPrice, until: (t.closeTime ?? 0) + POST_CLOSE_TRACK_MS, max: null });
     this.emit({ type: 'ladderClosed', record });
@@ -1272,6 +1314,7 @@ export class Engine {
         beApplied: l.beApplied,
         sl: l.sl,
         tp: l.hasTP ? l.tp : null,
+        tags: l.tags,
         tickets: ts.map((t) => this.ticketView(t)),
       };
       if (!ts.length || !l.dir || !this.quote) {

@@ -35,22 +35,37 @@ python converter\convert.py sample_ticks.csv
 | Area | What it does |
 |---|---|
 | Toolbar | Date/time + **Load**; **Play/Pause** (Space); speeds 1x 2x 5x 10x 60x; **+1 M1** (→); **Next M15 close** (Shift+→); drawing tools; HTF **M15/M30**; **Now** (End) scrolls to the current time |
-| Left chart | M15 or M30 for zones, PD arrays, trend |
-| Right chart | M1 with ticket entries, average entry, SL, TP and ask lines, fill/exit markers |
-| Panel | The EA panel: movable (drag the title), `-`/`+` collapses it. Lot + SELL/BUY, balance / cap / ladders, TOTAL IF SL HITS, NEW LADDER, Close all, New war account, per ladder the EA's lines + SL/TP + MOVE TO BE, unmanaged tickets, PLAN line |
-| Journal | Every closed ladder, with M1 screenshot at close (img), MFE, 4 h post-close run and a "why I closed" note |
+| Left chart | M15 or M30 for zones, PD arrays, trend. Zoom/scroll is independent of M1; only the replay time (and Now/End) moves both |
+| Right chart | M1 like MT5: one grey dashed line per open ticket, the ladder's average line labelled "L1: 4 trades", SL, TP and ask lines, exit markers |
+| Panel | The EA panel: movable (drag the title), `-`/`+` collapses it. Lot + SELL/BUY, balance / cap / ladders, TOTAL IF SL HITS, NEW LADDER, Close all, New war account, per ladder the EA's lines + SL/TP + MOVE TO BE + setup tags, unmanaged tickets (no PLAN line: removed from the EA in v3.0-s5) |
+| Journal | Every closed ladder, with setup tags, M1 screenshot at close (img), MFE, 4 h post-close run and a "why I closed" note. Also saved to `journal/journal.xlsx` (see below) |
 | Stats | Ladder / normal filter, date range, win rate, average R, % of move captured, ladders closed below 1R, CSV export |
-| Settings | Account (balance, leverage, contract size, commission, stop-out, SL buffer), auto-pause toggles, speed lock, server UTC offset |
+| Settings | Account (balance, leverage, contract size, commission, stop-out, stops level), EA inputs, auto-pause toggles (zone, SL, stage), speed lock, sounds on/off, server UTC offset |
 
 - **Nothing after the replay time is ever sent to the page.** The tick data lives in a Web Worker.
 - **Orders** fill on the first tick at or after the click: buy at ask, sell at bid. Buy SL/TP trigger
-  on bid, sell SL/TP on ask.
+  on bid, sell SL/TP on ask. A fill never pauses the replay (a real chart keeps moving); a zone touch,
+  an SL hit and the management stages can (Settings).
+- **Sounds** like MT5 desktop: trade opened, trade closed (SL, TP, manager or you), zone alert.
 - **SL/TP**: type a price in the ladder's SL/TP box and press Enter, or drag the SL/TP line on the M1
   chart. Dragging the average-entry line creates an SL (loss side) or TP (profit side). Like the EA,
   your edit becomes the ladder SL/TP and is copied to every ticket; an edit on the wrong side of price
   is rejected (MT5 would reject it); the ladder SL cannot be removed, only moved.
 - **Lot cap**: like the EA, a trade that takes a ladder over 0.10 lot per $100 of balance is closed
-  by the manager straight away (you lose the spread). The PLAN line warns "OVER CAP" before you trade.
+  by the manager straight away (you lose the spread). The panel header shows the cap.
+- **Setup tags**: each ladder has Session, PD array, HTF trend (rule of 4), Confirmation, Zone size,
+  Avg stop and Rule followed. Fill them in the ladder's "Setup tags" box while it is open; whatever is
+  still empty is asked once in a small card when the ladder closes; edit them later in the Journal.
+
+### Excel journal
+
+While the simulator runs through `start.bat`, every ladder close, tag/note edit and CSV export
+writes the full journal to **`journal/journal.xlsx`** in the simulator folder (one row per ladder:
+tags, result $ and R, closed below 1R, highest stage, exit reason, MFE, post-close run, chart image
+name, plus the EA journal fields). The M1 screenshots go to `journal/images/`. `journal/journal.json`
+holds the same rows and is updated first, so if `journal.xlsx` is open in Excel (locked), no row is
+lost: the server keeps retrying every 5 seconds and writes everything once you close Excel. The
+browser journal stays as it is.
 - **Drawings**: Rect (R), H-line (H), Text (T), Select (Esc). Click a drawing to select it; drag
   to move; drag a corner to resize; Delete removes it; double-click a label to edit it. Rectangles
   extend right by default (toggle "extend"). Drawings are saved per day in IndexedDB and appear on
@@ -67,7 +82,9 @@ src/worker/     simulation Web Worker + message protocol
 src/ui/         charts, drawing tools, panel, pages, IndexedDB
 tests/          vitest unit tests (+ a fixture written by the Python converter)
 app/            built app (committed so start.bat works without Node)
-serve.py        local server: app/ at /, data/ at /data/
+serve.py        local server: app/ at /, data/ at /data/, journal API -> journal/
+journal_store.py  journal.json + journal.xlsx writer (stdlib only, retries while Excel locks the file)
+reference/      the MT5 EA source the Ladder Manager mirrors
 start.bat, convert.bat
 ```
 
@@ -77,6 +94,7 @@ start.bat, convert.bat
 npm install
 npm test                               # vitest: engine, ladder manager, replay, stats
 python -m unittest discover converter  # converter round-trip tests
+python -m unittest discover -s tests -p "test_*.py"  # Excel journal store
 npm run dev                            # Vite dev server (serves ./data too)
 npm run build                          # typecheck + rebuild app/ (commit app/ afterwards)
 ```
@@ -92,12 +110,12 @@ Open the app with `?debug` to get `window.__gr` (chart views, drawing store) in 
 | 3. Orders + account | done | Bid/ask fills, margin/equity/margin level, margin rejection, stop-out → blown → New war account, settings page |
 | 4. Ladder Manager + panel | done | Port of the MT5 EA v3.0; 32 engine tests for the EA rules (stages, frozen average, BE, cap, gate, sync/wait, R); panel checked in the browser |
 | 5. Drawing tools | done | Rect/H-line/Text, select/move/resize/delete, HTF↔M1, saved per day, restored on reload |
-| 6. Auto-pause + speed lock | done | Zone touch, fill, SL, stages (each toggle), speed lock 1x/2x |
+| 6. Auto-pause + speed lock | done | Zone touch, SL, stages (each toggle; a fill never pauses), speed lock 1x/2x |
 | 7. Journal + stats + CSV | done | Auto-journal, MFE, 4 h post-close run (finished from data if you leave the session early), screenshot, note, stats, CSV |
 
 ## Ladder Manager = the MT5 EA
 
-The ladder logic is a port of your EA (`LadderManager.mqh` / `GoldLadderManager.mq5` v3.0), so the
+The ladder logic is a port of your EA (`reference/LadderManager.mqh` / `reference/GoldLadderManager.mq5` v3.0), so the
 simulator does what the EA does on a real chart: stages 2/3 from the average (frozen at stage 2),
 MOVE TO BE at average +1 pip from +30, "manual always wins", the NEW LADDER gate, the hard lot cap
 (0.10 lot per $100 per ladder, excess closed), SL/TP sync with waiting/retry, opposite trades left
