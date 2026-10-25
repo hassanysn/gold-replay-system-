@@ -231,6 +231,8 @@ export interface JournalRecord {
   postCloseDone: boolean;
   balanceBefore: number;
   balanceAfter: number;
+  /** Accounts traded together (1-3). */
+  accounts: number;
   note: string;
   tags: SetupTags;
 }
@@ -328,6 +330,7 @@ export interface EngineSnapshot {
   freeMargin: number;
   marginLevel: number | null;
   blown: boolean;
+  accounts: number;
   contractSize: number;
   /** Lot cap per ladder (Infinity = no cap). */
   lotCap: number;
@@ -356,6 +359,8 @@ export class Engine {
   readonly digits: number;
   balance: number;
   blown = false;
+  /** How many real accounts the balance combines (1-3); recorded with each journal row. */
+  accounts = 1;
   ladders: Ladder[] = [];
   tickets: Ticket[] = [];
   /** m_cur: ladder receiving new trades. */
@@ -742,18 +747,19 @@ export class Engine {
     return true;
   }
 
-  /** Why NEW LADDER is refused right now ('' = allowed). Mirrors CLadderManager::NewLadder. */
+  /**
+   * Why NEW LADDER is refused right now ('' = allowed). Like CLadderManager::NewLadder, except that a
+   * ladder only has to be at BE (risk-free: every ticket has an SL and IF SL HITS >= 0), not at
+   * stage 2 (your rule, 2026-10-25). Max 3 ladders; the current ladder must have trades.
+   */
   newLadderBlock(): string {
     const cur = this.activeLadder();
     if (cur && this.openTicketsOf(cur).length === 0) return `L${this.rank(cur)} has no trades yet - use it first`;
-    for (const l of this.openLadders()) {
-      if (l.stage < 2) return `L${this.rank(l)} has not reached stage 2 yet (SL at average +${this.settings.s2LockPips} pips)`;
-    }
     if (this.openLadders().length >= MAX_OPEN_LADDERS) return `maximum ${MAX_OPEN_LADDERS} ladders are open`;
     for (const l of this.openLadders()) {
       const r = this.ifSLHits(this.openTicketsOf(l));
       if (r === null) return `L${this.rank(l)} has a ticket with NO SL`;
-      if (r < -0.005) return `L${this.rank(l)} still at risk (${this.money(r)} if SL hits)`;
+      if (r < -0.005) return `L${this.rank(l)} is not at BE yet (${this.money(r)} if SL hits)`;
     }
     return '';
   }
@@ -854,6 +860,27 @@ export class Engine {
     this.closeAll();
     this.balance = this.settings.startBalance;
     this.blown = false;
+  }
+
+  /**
+   * Trade 1-3 real accounts as one combined account: balance = sum of their balances, so the lot cap
+   * and % at risk use the total. Only while nothing is open (like the EA's lot cap change).
+   */
+  setAccounts(balances: number[]): boolean {
+    const bals = balances.filter((b) => Number.isFinite(b) && b > 0).slice(0, 3);
+    if (!bals.length) {
+      this.notice('Accounts: enter at least one balance above $0');
+      return false;
+    }
+    if (this.hasOpenPositions()) {
+      this.notice('Accounts can only change while no trade is open - close your ladders first');
+      return false;
+    }
+    this.accounts = bals.length;
+    this.balance = round2(bals.reduce((a, b) => a + b, 0));
+    this.blown = false;
+    this.notice(`Accounts: ${bals.length} (${bals.map((b) => `$${b.toFixed(2)}`).join(' + ')}) = $${this.balance.toFixed(2)} | cap ${this.lotCap().toFixed(2)} lot per ladder`);
+    return true;
   }
 
   /** Applies new settings. Like the EA, the lot cap only changes while no trade is open, and stage
@@ -1192,6 +1219,7 @@ export class Engine {
       postCloseDone: false,
       balanceBefore: l.balBefore,
       balanceAfter: this.balance,
+      accounts: this.accounts,
       note: '',
       tags: { ...l.tags },
     };
@@ -1238,6 +1266,7 @@ export class Engine {
       postCloseDone: false,
       balanceBefore: round2(this.balance - result),
       balanceAfter: this.balance,
+      accounts: this.accounts,
       note: '',
       tags: { ...EMPTY_TAGS },
     };
@@ -1422,6 +1451,7 @@ export class Engine {
       freeMargin: equity - margin,
       marginLevel: margin > 0 ? (equity / margin) * 100 : null,
       blown: this.blown,
+      accounts: this.accounts,
       contractSize: s.contractSize,
       lotCap: this.lotCap(),
       ladderCount: this.openLadders().length,

@@ -91,6 +91,28 @@ class JournalStoreTests(unittest.TestCase):
             p = s.save_image("../../evil", b"x")
             self.assertTrue(p.startswith(s.images))
 
+    def test_rows_saved_before_a_new_column_still_line_up(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            s = journal_store.JournalStore(os.path.join(tmp, "journal"))
+            s.merge(["id", "result_usd", "note"], [{"id": "old", "closeTime": 1, "row": ["old", 48.69, "n1"]}])
+            s.merge(["id", "accounts", "result_usd", "note"], [{"id": "new", "closeTime": 2, "row": ["new", 2, 12.5, "n2"]}])
+            rows = read_xlsx(s.xlsx_path)
+            self.assertEqual(rows[0], ["id", "accounts", "result_usd", "note"])
+            self.assertEqual(rows[1], ["old", 48.69, "n1"])  # empty accounts cell is skipped
+            self.assertEqual(rows[2], ["new", 2.0, 12.5, "n2"])
+
+    def test_reads_an_older_journal_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = os.path.join(tmp, "journal")
+            os.makedirs(folder)
+            with open(os.path.join(folder, "journal.json"), "w", encoding="utf-8") as f:
+                json.dump({"header": ["id", "result_usd"], "rows": {"a": {"closeTime": 1, "row": ["a", 5]}}}, f)
+            s = journal_store.JournalStore(folder)
+            s.merge(["id", "accounts", "result_usd"], [{"id": "b", "closeTime": 2, "row": ["b", 1, 7]}])
+            ws = read_xlsx(s.xlsx_path)
+            self.assertEqual(ws[0], ["id", "accounts", "result_usd"])
+            self.assertEqual(s.rows["a"]["values"], {"id": "a", "result_usd": 5})
+
     def test_column_letters(self):
         self.assertEqual([journal_store._col(i) for i in (0, 25, 26, 51, 52)], ["A", "Z", "AA", "AZ", "BA"])
 

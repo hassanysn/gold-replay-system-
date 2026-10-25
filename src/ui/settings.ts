@@ -8,6 +8,8 @@ export interface AppSettings {
   serverUtcOffset: number;
   htf: 'M15' | 'M30';
   lot: number;
+  /** Balances of the 1-3 real accounts traded together (their sum is the war account balance). */
+  accountBalances: number[];
   /** Trade open / close / zone alert sounds. */
   sound: boolean;
 }
@@ -18,6 +20,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   serverUtcOffset: 2,
   htf: 'M15',
   lot: 0.01,
+  accountBalances: [50],
   sound: true,
 };
 
@@ -25,6 +28,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
 export interface AccountState {
   balance: number;
   blown: boolean;
+  /** Accounts combined in the balance (1-3). */
+  accounts: number;
 }
 
 export async function loadSettings(): Promise<AppSettings> {
@@ -41,7 +46,8 @@ export function saveSettings(s: AppSettings): Promise<void> {
 }
 
 export async function loadAccountState(s: AppSettings): Promise<AccountState> {
-  return (await db.get<AccountState>('kv', 'account').catch(() => undefined)) ?? { balance: s.account.startBalance, blown: false };
+  const a = await db.get<AccountState>('kv', 'account').catch(() => undefined);
+  return a ? { ...a, accounts: a.accounts ?? 1 } : { balance: s.account.startBalance, blown: false, accounts: s.accountBalances.length };
 }
 
 export function saveAccountState(a: AccountState): Promise<void> {

@@ -248,6 +248,7 @@ async function load(msg: Extract<ToWorker, { type: 'load' }>) {
   const digits = loaded[loaded.length - 1].digits;
   const engine = new Engine(msg.account, msg.balance, digits);
   engine.blown = msg.blown;
+  engine.accounts = msg.accounts;
   engine.idPrefix = Date.now().toString(36);
   const r = new Replay(days, engine);
   loaded.forEach((d, k) => r.setDay(historyFrom + k, d));
@@ -357,6 +358,9 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       case 'setTicketTP':
         withReplay((r) => r.engine.setTicketTP(msg.ticketId, msg.price));
         break;
+      case 'setAccounts':
+        withReplay((r) => r.engine.setAccounts(msg.balances));
+        break;
       case 'setTags':
         withReplay((r) => r.engine.setTags(msg.ladderId, msg.tags));
         break;
@@ -367,6 +371,7 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
         withReplay((r) => {
           r.engine.updateSettings(msg.account);
           r.engine.newWarAccount();
+          r.engine.accounts = msg.accounts;
           notice(`New war account: balance $${msg.account.startBalance}`, 'info');
         });
         break;

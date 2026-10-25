@@ -40,6 +40,7 @@ function rec(p: Partial<JournalRecord>): JournalRecord {
     maePrice: null,
     giveback: null,
     balanceBefore: 50,
+    accounts: 1,
     tags: { session: 'London', pdArray: 'FVG', htfTrend: 'with', confirmation: 'deep', zonePips: 40, avgStopPips: 35, ruleFollowed: 'yes' },
     note: '',
     ...p,

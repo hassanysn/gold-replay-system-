@@ -146,39 +146,53 @@ describe('grouping (AssignNew)', () => {
   });
 });
 
-describe('NEW LADDER gate', () => {
-  it('needs every open ladder at stage 2 and risk-free, max 3 ladders', () => {
+describe('NEW LADDER gate (BE is enough, no stage 2 needed)', () => {
+  it('opens a new ladder as soon as every open ladder is at BE; max 3 ladders', () => {
     const { e, tick } = mk();
     expect(e.newLadderBlock()).toBe('');
-    open(e, tick, 'buy', 0.01, 2000); // avg 2000.2
-    expect(e.newLadderBlock()).toBe('L1 has not reached stage 2 yet (SL at average +20 pips)');
-    tick(2005.2); // stage 2: SL = 2002.2
-    expect(e.ladder(1)!.sl).toBe(2002.2);
+    open(e, tick, 'buy', 0.01, 2000); // L1 avg 2000.2
+    expect(e.newLadderBlock()).toBe('L1 has a ticket with NO SL');
+    e.setSL(1, 1998.2);
+    expect(e.newLadderBlock()).toBe('L1 is not at BE yet (-$2.00 if SL hits)');
+    tick(2003.2); // +30
+    e.applyBE(1); // SL = average +1 pip
+    expect(e.ladder(1)!.stage).toBe(0); // no stage 2 needed
     expect(e.newLadder()).toBe(true);
     expect(e.newLadderBlock()).toBe('L2 has no trades yet - use it first');
-    open(e, tick, 'buy', 0.01, 2005.2); // L2 avg 2005.4
-    expect(e.newLadderBlock()).toMatch(/L2 has not reached stage 2/);
-    tick(2010.4); // L2 stage 2; L1 stage 3 is at 2010.2 -> also reached
-    e.setSL(1, 2000); // you drag L1's SL back into loss
-    expect(e.newLadderBlock()).toBe('L1 still at risk (-$0.20 if SL hits)');
-    e.setSL(1, 2008);
+    open(e, tick, 'buy', 0.01, 2003.2); // L2 avg 2003.4
+    e.setSL(2, 2001);
+    expect(e.newLadderBlock()).toBe('L2 is not at BE yet (-$2.40 if SL hits)');
+    tick(2006);
+    e.setSL(2, 2003.5); // you move L2's SL to BE by hand: that counts too
     expect(e.newLadder()).toBe(true);
-    open(e, tick, 'buy', 0.01, 2010.4); // L3
-    tick(2015.6);
+    open(e, tick, 'buy', 0.01, 2006); // L3
     expect(e.openLadders().length).toBe(3);
     expect(e.newLadderBlock()).toBe('maximum 3 ladders are open');
-    open(e, tick, 'buy', 0.01, 2015.6); // joins L3
+    open(e, tick, 'buy', 0.01, 2006); // joins L3
     expect(e.ladder(3)!.tickets.length).toBe(2);
   });
 
-  it('refuses a new ladder while a ticket has no SL', () => {
+  it('refuses while an older ladder was moved back into risk', () => {
     const { e, tick } = mk();
+    open(e, tick, 'buy', 0.01, 2000); // avg 2000.2
+    tick(2005.2); // stage 2: SL 2002.2
+    e.setSL(1, 1999);
+    expect(e.newLadderBlock()).toBe('L1 is not at BE yet (-$1.20 if SL hits)');
+  });
+});
+
+describe('accounts (1-3 traded as one)', () => {
+  it('combines balances so the lot cap and % at risk use the total; only while flat', () => {
+    const { e, tick } = mk({}, 50);
+    expect(e.setAccounts([50, 50])).toBe(true);
+    expect([e.balance, e.accounts, e.lotCap()]).toEqual([100, 2, 0.1]);
+    expect(e.setAccounts([50, 60, 40])).toBe(true);
+    expect([e.balance, e.accounts, e.lotCap()]).toEqual([150, 3, 0.15]);
     open(e, tick, 'buy', 0.01, 2000);
-    tick(2005.2);
-    e.newLadder();
-    open(e, tick, 'buy', 0.01, 2005.2);
-    tick(2010.6); // L2 stage 2 gets SL; add a 3rd ticket to L2 that will have the SL too
-    expect(e.newLadderBlock()).toBe('');
+    expect(e.setAccounts([50])).toBe(false); // trade open
+    e.closeLadder(1);
+    expect(closed(e.takeEvents())!.record.accounts).toBe(3);
+    expect(e.setAccounts([0, -5])).toBe(false);
   });
 });
 

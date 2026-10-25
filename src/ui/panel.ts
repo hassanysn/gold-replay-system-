@@ -18,6 +18,8 @@ export interface PanelActions {
   setTicketTP(ticketId: number, price: number | null): void;
   closeTicket(ticketId: number): void;
   setTags(ladderId: number, tags: SetupTags): void;
+  /** Trade 1-3 accounts as one: balances of each account. */
+  setAccounts(balances: number[]): void;
   closeAll(): void;
   newLadder(): void;
   newWarAccount(): void;
@@ -178,6 +180,12 @@ export class Panel {
   private closeAllBtn = el('button', 'btn close', 'Close all');
   private warBtn = el('button', 'btn', 'New war account');
   private ladderBox = el('div', 'ladders');
+  private accBox = el('details', 'accounts');
+  private accHead = el('summary');
+  private accCount = el('select');
+  private accInputs: HTMLInputElement[] = [];
+  private accRows: HTMLElement[] = [];
+  private accApply = el('button', 'btn', 'Use these accounts');
   private unmanagedBox = el('div', 'unmanaged');
   private sections = new Map<number, LadderSection>();
   private rows = new Map<number, UnmanagedRow>();
@@ -189,6 +197,7 @@ export class Panel {
     private a: PanelActions,
     pos: { x: number; y: number; collapsed: boolean } | null,
     lot: number,
+    accountBalances: number[],
   ) {
     const head = el('div', 'panel-head');
     head.append(el('span', 'panel-title', 'GOLD LADDER MANAGER'), this.collapseBtn);
@@ -213,8 +222,36 @@ export class Panel {
     const globalBtns = el('div', 'row');
     globalBtns.append(this.newLadderBtn, this.closeAllBtn, this.warBtn);
 
+    // Accounts: 1-3 real accounts traded together as one combined balance
+    this.accCount.id = 'acc-count';
+    for (const n of [1, 2, 3]) this.accCount.append(new Option(`${n} account${n > 1 ? 's' : ''}`, String(n)));
+    this.accCount.value = String(Math.min(3, Math.max(1, accountBalances.length)));
+    const grid = el('div', 'acc-grid');
+    for (let i = 0; i < 3; i++) {
+      const inp = el('input');
+      inp.type = 'number';
+      inp.min = '1';
+      inp.step = '1';
+      inp.id = `acc-bal-${i + 1}`;
+      inp.value = String(accountBalances[i] ?? accountBalances[0] ?? 50);
+      const lab = el('label', 'lbl', `Account ${i + 1} $`);
+      lab.htmlFor = inp.id;
+      const row = el('div', 'acc-row');
+      row.append(lab, inp);
+      grid.append(row);
+      this.accInputs.push(inp);
+      this.accRows.push(row);
+    }
+    const showRows = () => this.accRows.forEach((r, i) => (r.hidden = i >= Number(this.accCount.value)));
+    this.accCount.onchange = showRows;
+    showRows();
+    this.accApply.onclick = () => a.setAccounts(this.accInputs.slice(0, Number(this.accCount.value)).map((i) => Number(i.value)));
+    this.accApply.title = 'Sets the balance to the total of these accounts (lot cap and % at risk use it). Only while no trade is open; the journal is kept.';
+    const accTop = el('div', 'edits');
+    accTop.append(this.accCount, this.accApply);
+    this.accBox.append(this.accHead, accTop, grid);
     this.unmanagedBox.append(el('div', 'ladder-title', 'UNMANAGED - opposite to your ladder(s), manage it yourself'));
-    this.body.append(orderRow, this.info, this.acct, this.total, globalBtns, this.ladderBox, this.unmanagedBox);
+    this.body.append(orderRow, this.info, this.acct, this.accBox, this.total, globalBtns, this.ladderBox, this.unmanagedBox);
     this.root.append(head, this.body);
     host.append(this.root);
 
@@ -263,6 +300,7 @@ export class Panel {
     const cap = Number.isFinite(s.lotCap) ? `${s.lotCap.toFixed(2)} lot per ladder` : 'none';
     this.info.textContent = `Balance $${s.balance.toFixed(2)}${s.blown ? ' BLOWN' : ''}  |  cap ${cap}  |  ladders ${s.ladderCount} of 3`;
     this.info.classList.toggle('neg', s.blown);
+    this.accHead.textContent = `Accounts: ${s.accounts} combined = $${s.balance.toFixed(2)}${Number.isFinite(s.lotCap) ? ` | cap ${s.lotCap.toFixed(2)} lot` : ''}`;
     this.acct.textContent = `Equity ${usd(s.equity)}  |  margin level ${s.marginLevel === null ? '-' : `${s.marginLevel.toFixed(0)}%`}  |  free ${usd(s.freeMargin)}`;
     if (s.totalIfSLHits === null) {
       this.total.textContent = 'TOTAL IF SL HITS:  NO SL - UNLIMITED LOSS';

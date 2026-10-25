@@ -126,6 +126,7 @@ const COLUMNS: [string, (r: JournalRecord) => Cell][] = [
   ['closed_by_you', (r) => num(r.closedBy?.you)],
   ['closed_by_other', (r) => num(r.closedBy?.other)],
   ['auto_sl_refused', (r) => num(r.autoSlRefused)],
+  ['accounts', (r) => num(r.accounts ?? 1)],
   ['balance_before', (r) => num(r.balanceBefore)],
   ['balance_after', (r) => r2(r.balanceAfter)],
   ['chart_image', (r) => chartImageName(r)],

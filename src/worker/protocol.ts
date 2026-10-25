@@ -31,6 +31,7 @@ export type ToWorker =
       account: AccountSettings;
       balance: number;
       blown: boolean;
+      accounts: number;
       speedLock: boolean;
       zones: Zone[];
     }
@@ -49,7 +50,8 @@ export type ToWorker =
   | { type: 'setTicketTP'; ticketId: number; price: number | null }
   | { type: 'closeTicket'; ticketId: number }
   | { type: 'setTags'; ladderId: number; tags: SetupTags }
-  | { type: 'newWarAccount'; account: AccountSettings }
+  | { type: 'newWarAccount'; account: AccountSettings; accounts: number }
+  | { type: 'setAccounts'; balances: number[] }
   | { type: 'settings'; account: AccountSettings; speedLock: boolean }
   | { type: 'zones'; zones: Zone[] }
   | { type: 'finalizePostClose'; items: PostCloseScan[] };

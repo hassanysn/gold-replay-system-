@@ -37,7 +37,7 @@ python converter\convert.py sample_ticks.csv
 | Toolbar | Date/time + **Load**; **Play/Pause** (Space); speeds 1x 2x 5x 10x 60x; **+1 M1** (→); **Next M15 close** (Shift+→); **✂ Cut** (C); drawing tools; HTF **M15/M30**; **Now** (End) scrolls to the current time |
 | Left chart | M15 or M30 for zones, PD arrays, trend. Zoom/scroll is independent of M1; only the replay time (and Now/End) moves both |
 | Right chart | M1 like MT5: one grey dashed line per open ticket, the ladder's average line labelled "L1: 4 trades", SL, TP and ask lines, exit markers |
-| Panel | The EA panel: movable (drag the title), `-`/`+` collapses it. Lot + SELL/BUY, balance / cap / ladders, TOTAL IF SL HITS, NEW LADDER, Close all, New war account, per ladder the EA's lines + SL/TP + MOVE TO BE + setup tags, unmanaged tickets (no PLAN line: removed from the EA in v3.0-s5) |
+| Panel | The EA panel: movable (drag the title), `-`/`+` collapses it. Lot + SELL/BUY, balance / cap / ladders, **Accounts** box (1-3 accounts combined), TOTAL IF SL HITS, NEW LADDER, Close all, New war account, per ladder the EA's lines + SL/TP + MOVE TO BE + setup tags, unmanaged tickets (no PLAN line: removed from the EA in v3.0-s5) |
 | Journal | Every closed ladder, with setup tags, M1 screenshot at close (img), MFE, 4 h post-close run and a "why I closed" note. Also saved to `journal/journal.xlsx` (see below) |
 | Stats | Ladder / normal filter, date range, win rate, average R, % of move captured, ladders closed below 1R, CSV export |
 | Settings | Account (balance, leverage, contract size, commission, stop-out, stops level), EA inputs, speed lock, sounds on/off, server UTC offset |
@@ -52,6 +52,12 @@ python converter\convert.py sample_ticks.csv
   zone touches, SL hits and stages never stop it.
 - **Sounds** like MT5 desktop: trade opened, trade closed (SL, TP, manager or you), and an alert when
   price touches a marked zone (the replay keeps running).
+- **NEW LADDER** works as soon as every open ladder is at BE (each ticket has an SL and IF SL HITS is
+  zero or better: MOVE TO BE, a stage, or your own SL). No stage 2 needed. Max 3 ladders.
+- **Accounts**: open the "Accounts" line in the panel, choose 1, 2 or 3 accounts and their balances,
+  press "Use these accounts". The simulator trades them as one: balance = total, so the lot cap
+  (0.10 lot per $100) and the % at risk use the total. Only while no trade is open; the journal is kept
+  and records the number of accounts per ladder (`accounts` column).
 - **MOVE TO BE** works whenever price is +30 pips or more from the average: it sets the SL to average
   +1 pip on every ticket. If your SL is already better (moved by you, stage 2 or stage 3) the button
   reads **PULL BACK TO BE** and gives that locked profit back on purpose, to leave room for a

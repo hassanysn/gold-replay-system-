@@ -228,6 +228,7 @@ function loadAt(date: string, time: string) {
     account: settings.account,
     balance: account.balance,
     blown: account.blown,
+    accounts: account.accounts,
     speedLock: settings.speedLock,
     zones: [],
   });
@@ -288,14 +289,31 @@ function initPanel() {
       setTags: (ladderId, tags) => send({ type: 'setTags', ladderId, tags }),
       newWarAccount: () => {
         if (!session) {
-          account = { balance: settings.account.startBalance, blown: false };
+          account = { balance: settings.account.startBalance, blown: false, accounts: settings.accountBalances.length };
           void saveAccountState(account);
+          showIdlePanel();
           toast(`New war account: balance $${account.balance}`);
           return;
         }
         const open = lastFrame && hasPositions(lastFrame.snap) ? ' Open positions will be closed first.' : '';
         if (confirm(`Start a new war account with $${settings.account.startBalance}? The journal is kept.${open}`)) {
-          send({ type: 'newWarAccount', account: settings.account });
+          send({ type: 'newWarAccount', account: settings.account, accounts: settings.accountBalances.length });
+        }
+      },
+      setAccounts: (balances) => {
+        const bals = balances.filter((b) => Number.isFinite(b) && b > 0).slice(0, 3);
+        if (!bals.length) return toast('Enter at least one account balance above $0', 'warn');
+        if (lastFrame && hasPositions(lastFrame.snap)) return toast('Accounts can only change while no trade is open - close your ladders first', 'warn');
+        settings.accountBalances = bals;
+        settings.account.startBalance = Math.round(bals.reduce((a, b) => a + b, 0) * 100) / 100;
+        void saveSettings(settings);
+        send({ type: 'settings', account: settings.account, speedLock: settings.speedLock });
+        if (session) send({ type: 'setAccounts', balances: bals });
+        else {
+          account = { balance: settings.account.startBalance, blown: false, accounts: bals.length };
+          void saveAccountState(account);
+          showIdlePanel();
+          toast(`Accounts: ${bals.length} = $${account.balance.toFixed(2)}`);
         }
       },
       lotChanged: (lot) => {
@@ -306,7 +324,16 @@ function initPanel() {
     },
     panelPos,
     settings.lot,
+    settings.accountBalances,
   );
+}
+
+/** Panel values before a replay is loaded (balance, accounts, cap). */
+function showIdlePanel() {
+  const idle = new Engine(settings.account, account.balance, 2);
+  idle.blown = account.blown;
+  idle.accounts = account.accounts;
+  panel.update(idle.snapshot());
 }
 
 // ------------------------------------------------------------------ pages
@@ -396,8 +423,8 @@ function applyFrame(f: Frame) {
   tradeLines.update(f.snap);
   panel.update(f.snap);
   updateControls(f);
-  if (f.snap.balance !== account.balance || f.snap.blown !== account.blown) {
-    account = { balance: f.snap.balance, blown: f.snap.blown };
+  if (f.snap.balance !== account.balance || f.snap.blown !== account.blown || f.snap.accounts !== account.accounts) {
+    account = { balance: f.snap.balance, blown: f.snap.blown, accounts: f.snap.accounts };
     void saveAccountState(account);
   }
   if (pendingShots.length) requestAnimationFrame(() => requestAnimationFrame(takeShots));
@@ -593,9 +620,7 @@ async function boot() {
   });
   if (journal.length) syncJournal(journal, 1500);
   initPanel();
-  const idle = new Engine(settings.account, account.balance, 2);
-  idle.blown = account.blown;
-  panel.update(idle.snapshot());
+  showIdlePanel();
   showPage('chart');
   showHtf();
   setTool('select');

@@ -120,3 +120,9 @@ fieldset .check { display: flex; margin: 4px 0; }
 td.setup { white-space: normal !important; min-width: 180px; }
 .tags-btn { font-size: 11px; padding: 0 6px; }
 .panel .btn.be.pullback:not(:disabled) { background: #c9a227; border-color: #c9a227; color: #111; }
+/* accounts box */
+.panel details.accounts { margin: 4px 0; }
+.panel details.accounts summary { cursor: pointer; color: #9aa3ad; }
+.panel .acc-grid { display: flex; flex-direction: column; gap: 3px; margin-top: 3px; }
+.panel .acc-row { display: grid; grid-template-columns: 90px 100px; gap: 6px; align-items: center; }
+.panel .acc-row input, .panel details.accounts select { background: #111; color: #fff; border-color: #474d57; padding: 1px 4px; }

@@ -49,7 +49,7 @@ export class JournalPage {
       <td><button class="shot-btn" title="M1 chart at close">img</button></td>
       <td>${fmtTime(r.openTime)}<br><span class="muted">${fmtTime(r.closeTime)}</span></td>
       <td class="${r.dir}">${r.dir.toUpperCase()}</td>
-      <td>${r.kind}</td>
+      <td>${r.kind}${(r.accounts ?? 1) > 1 ? ` · ${r.accounts} acc` : ''}</td>
       <td class="setup">${esc(tagSummary(r.tags)) || '<span class="muted">none</span>'} <button class="btn tags-btn">Edit</button></td>
       <td>${r.ticketCount}</td>
       <td>${r.avgEntry.toFixed(3)}</td>
