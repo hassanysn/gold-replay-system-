@@ -134,7 +134,9 @@ class JournalStore:
         self.images = os.path.join(folder, "images")
         self.lock = threading.Lock()
         self.header: list[str] = []
-        self.rows: dict[str, dict] = {}  # id -> {"closeTime": ms, "row": [...]}
+        # id -> {"closeTime": ms, "values": {column: value}}; columns are stored by name so rows saved
+        # before a column was added still line up after it.
+        self.rows: dict[str, dict] = {}
         self.dirty = False  # xlsx is behind journal.json
         self.last_error = ""
         self._load()
@@ -144,7 +146,12 @@ class JournalStore:
             with open(self.json_path, encoding="utf-8") as f:
                 data = json.load(f)
             self.header = data.get("header", [])
-            self.rows = data.get("rows", {})
+            self.rows = {}
+            for k, r in data.get("rows", {}).items():
+                if "values" in r:
+                    self.rows[k] = {"closeTime": r.get("closeTime", 0), "values": r["values"]}
+                else:  # older file: a list in the order of the saved header
+                    self.rows[k] = {"closeTime": r.get("closeTime", 0), "values": dict(zip(self.header, r.get("row", [])))}
             self.dirty = bool(data.get("xlsxPending", False))
 
     def _save_json(self) -> None:
@@ -162,16 +169,22 @@ class JournalStore:
             for it in items:
                 if not it.get("id"):
                     continue
-                self.rows[str(it["id"])] = {"closeTime": it.get("closeTime", 0), "row": it.get("row", [])}
+                cols = header or self.header
+                self.rows[str(it["id"])] = {"closeTime": it.get("closeTime", 0), "values": dict(zip(cols, it.get("row", [])))}
             self.dirty = True
             self._save_json()
             return self._write_xlsx()
 
     def _write_xlsx(self) -> dict:
         ordered = sorted(self.rows.values(), key=lambda r: r.get("closeTime", 0))
+        header = list(self.header)
+        for r in ordered:  # columns only older rows have go at the end
+            for k in r["values"]:
+                if k not in header:
+                    header.append(k)
         tmp = os.path.join(self.folder, "~journal.writing.xlsx")
         try:
-            write_xlsx(tmp, self.header, [r["row"] for r in ordered])
+            write_xlsx(tmp, header, [[r["values"].get(h) for h in header] for r in ordered])
             os.replace(tmp, self.xlsx_path)
         except OSError as e:  # Excel keeps journal.xlsx locked while it is open
             self.last_error = f"{type(e).__name__}: {e}"

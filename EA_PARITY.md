@@ -1,6 +1,13 @@
 # EA parity: GoldLadderManager v3.0 vs the simulator
 
-Source of truth: `reference/LadderManager.mqh` and `reference/GoldLadderManager.mq5`, version **3.0-s5**.
+Source of truth: `reference/LadderManager.mqh` and `reference/GoldLadderManager.mq5`, version **3.0-s6**.
+
+**s6 (2026-10-25):** the EA now has your two rules that were simulator-only, so rows 7 and 19 match
+again. MOVE TO BE pulls a better SL back to average +1 pip (never below it; no waiting auto SL
+re-tightens it). NEW LADDER only needs every open ladder at BE, not stage 2. s6 also writes
+`Common\Files\GLM_state_<symbol>.json` every second and runs NEW LADDER / MOVE TO BE commands from
+`GLM_cmd_<symbol>.txt` for the live page (input "Gold Replay live (s6)", see LIVE.md). Nothing else in
+the ladder logic changed.
 
 **s5 check (2026-10-25):** compared line by line with 3.0-s4. The only changes are the version string and
 the removal of the PLAN line from the panel (inputs, edit boxes, `PlanText`, its saved values). The ladder
@@ -22,7 +29,7 @@ All defaults are the EA's input defaults.
 | 4 | Stage 3 trigger after a settings change | `next` recomputed from the anchor every pass (follows a panel change) | Fixed constants | Same as EA |
 | 5 | BE level | avg **+1 pip** (`BEBufferPips` is added in the profit direction) | avg +1 − 1 buffer = **avg exactly** | avg +1 pip |
 | 6 | BE availability | **Live** check at the moment you press: price must be ≥ +30 from the **live** average now | Stayed available once +30 had been reached | Live check, like the EA (refused "TOO EARLY" with the BE price) |
-| 7 | BE when SL already better | Refused: "already at or past breakeven - nothing changed" | Same idea (button disabled) | **Deliberate difference (your rule, 2026-10-25):** allowed from +30; pulls the SL back to average +1 pip ("PULL BACK TO BE"), never below it; stage unchanged (no stage 2 re-fire, stage 3 still fires); journal `be_pulled_back`. Update the EA to match if you want the real chart to behave the same |
+| 7 | BE when SL already better | s5: refused ("already at or past breakeven"). **s6: pulls the SL back to average +1 pip** ("BE PULL-BACK"), never below it; refused only when every ticket is already at average +1 pip | Same idea (button disabled) | Same as EA s6: allowed from +30, "PULL BACK TO BE"; stage unchanged (no stage 2 re-fire, stage 3 still fires); journal `be_pulled_back` |
 | 8 | BE and "stage 1" | Not a stored stage; counts as an SL edit (`jSlEdits++`) | Stage 1 stored as "BE available" | Not a stage; counts as SL edit (a pull-back too) |
 | 9 | "Manual always wins" | EA moves the SL only at its own events (stage 2, stage 3, BE button) and only if its level is **better** than your SL; otherwise logs "not applied - your SL is already better" | Never-backwards check per ticket | Compared with the ladder SL, same log line |
 | 10 | Your SL edit vs a waiting auto SL | Your edit **cancels** a pending auto SL ("your edit wins") | No pending concept | Same as EA |
@@ -34,7 +41,7 @@ All defaults are the EA's input defaults.
 | 16 | Opposite-direction trade | **Not blocked** (MT5 cannot block manual trades): opened, logged "opposite to your open ladder(s) - NOT managed. Manage it yourself.", counted as unmanaged | **Hard block** (SPEC §6) | Not blocked: opened as an **unmanaged** ticket with its own SL/TP/Close in the panel; journaled as type **normal** |
 | 17 | Left-over opposite trade after the ladders close | Adopted into a new ladder on the next pass (`AssignNew` picks up unowned tickets) | n/a | Adopted, like the EA |
 | 18 | Current ladder closed while others are open | New trades join the **newest open** ladder (`NewestActive`) | Started a new ladder | Joins the newest open ladder |
-| 19 | NEW LADDER gate | Refused if: current ladder has no trades ("use it first"); **every** open ladder not at stage 2; 3 ladders open; any ladder has a ticket with **no SL**; any ladder **still at risk** (IF SL HITS < 0) | Only the active ladder at stage 2 + max 3 | Exactly the EA checks and messages |
+| 19 | NEW LADDER gate | s5: also needed every open ladder at stage 2. **s6: refused if** the current ladder has no trades ("use it first"); 3 ladders open; any ladder has a ticket with **no SL**; any ladder **not at BE yet** (IF SL HITS < 0). No stage 2 needed | Only the active ladder at stage 2 + max 3 | Exactly the EA s6 checks and messages |
 | 20 | NEW LADDER result | Creates an **empty ladder** immediately (counts toward the 3); no cancel; log lists "L1 locked +$x" | "Armed" flag, cancellable | Empty ladder, no cancel, same log |
 | 21 | Max ladders | 3 (`LM_MAX`), empty ladder included | 3 | 3, empty included |
 | 22 | Lot cap | **Hard cap** per ladder: balance/100 × `LotPer100` (0.10), rounded **down** to 0.01; recomputed from the current balance every pass; tickets (oldest first) that take a ladder over the cap are **closed by the manager** | Warning only at 0.1 lot per **$50** (twice the EA's size) | EA cap enforced; closes are logged "CAP ... CLOSED" and journaled as closed by manager |

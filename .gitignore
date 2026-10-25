@@ -4,3 +4,4 @@ sample_ticks.csv
 *.tmp
 __pycache__/
 journal/
+journal_live/

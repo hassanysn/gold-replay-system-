@@ -5,7 +5,13 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   base: './',
   publicDir: false,
-  build: { outDir: 'app', emptyOutDir: true, target: 'es2022' },
+  build: {
+    outDir: 'app',
+    emptyOutDir: true,
+    target: 'es2022',
+    // index.html = replay simulator (serve.py), live.html = live MT5 trading (live/bridge.py)
+    rollupOptions: { input: { main: 'index.html', live: 'live.html' } },
+  },
   worker: { format: 'es' },
   test: { include: ['tests/**/*.test.ts'] },
 });

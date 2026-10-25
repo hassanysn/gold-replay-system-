@@ -696,7 +696,7 @@ export class Engine {
    * (moved by you, stage 2 or stage 3): that "pull-back" gives locked profit back on purpose, to leave
    * room for a retracement. It never goes below average + buffer, so the ladder stays risk-free.
    * The stage does not change: stage 2 does not fire again, stage 3 still fires at its trigger.
-   * (Simulator rule from 2026-10-25; the EA v3.0-s5 refuses BE when the SL is already past it.)
+   * (Your rule from 2026-10-25; the EA does the same since v3.0-s6 - s5 refused BE when the SL was already past it.)
    */
   applyBE(ladderId: number): boolean {
     const u = this.userLadder(ladderId);
@@ -742,18 +742,19 @@ export class Engine {
     return true;
   }
 
-  /** Why NEW LADDER is refused right now ('' = allowed). Mirrors CLadderManager::NewLadder. */
+  /**
+   * Why NEW LADDER is refused right now ('' = allowed). Mirrors CLadderManager::NewLadder of EA s6: a
+   * ladder only has to be at BE (risk-free: every ticket has an SL and IF SL HITS >= 0), not at
+   * stage 2 (your rule, 2026-10-25). Max 3 ladders; the current ladder must have trades.
+   */
   newLadderBlock(): string {
     const cur = this.activeLadder();
     if (cur && this.openTicketsOf(cur).length === 0) return `L${this.rank(cur)} has no trades yet - use it first`;
-    for (const l of this.openLadders()) {
-      if (l.stage < 2) return `L${this.rank(l)} has not reached stage 2 yet (SL at average +${this.settings.s2LockPips} pips)`;
-    }
     if (this.openLadders().length >= MAX_OPEN_LADDERS) return `maximum ${MAX_OPEN_LADDERS} ladders are open`;
     for (const l of this.openLadders()) {
       const r = this.ifSLHits(this.openTicketsOf(l));
       if (r === null) return `L${this.rank(l)} has a ticket with NO SL`;
-      if (r < -0.005) return `L${this.rank(l)} still at risk (${this.money(r)} if SL hits)`;
+      if (r < -0.005) return `L${this.rank(l)} is not at BE yet (${this.money(r)} if SL hits)`;
     }
     return '';
   }

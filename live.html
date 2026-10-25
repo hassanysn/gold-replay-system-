@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gold Replay Live</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body class="live">
+    <header id="toolbar">
+      <div class="group">
+        <span id="badge" class="badge">MT5 ...</span>
+        <span id="acct" class="muted"></span>
+      </div>
+      <div class="group">
+        <label class="arm" id="arm-wrap" title="Trading from this page is off until you switch it on (every page load)">
+          <input type="checkbox" id="arm" /> <span id="arm-text">LIVE trading OFF</span>
+        </label>
+        <span id="ea" class="ea-status">EA ...</span>
+      </div>
+      <div id="clock" class="clock">-</div>
+      <div class="group" id="tools">
+        <button class="btn tool" data-tool="select" title="Select / move / resize (Esc)">Select</button>
+        <button class="btn tool" data-tool="rect" title="Rectangle zone (R)">Rect</button>
+        <button class="btn tool" data-tool="hline" title="Horizontal line (H)">H-line</button>
+        <button class="btn tool" data-tool="text" title="Text label (T)">Text</button>
+        <label class="check" id="extend-wrap" title="Rectangle extends to the right (zone stays live)"><input type="checkbox" id="extend" /> extend</label>
+        <button id="delDrawing" class="btn" title="Delete selected drawing (Delete)">Delete</button>
+      </div>
+      <div class="group">
+        <span class="muted">HTF</span>
+        <button class="btn htf" data-htf="M15">M15</button>
+        <button class="btn htf" data-htf="M30">M30</button>
+        <button id="now" class="btn" title="Scroll both charts to the current time (End)">Now</button>
+        <label class="check" title="Trade opened / closed and zone alert sounds"><input type="checkbox" id="sound" checked /> sound</label>
+      </div>
+      <nav class="group">
+        <button class="btn nav" data-page="chart">Chart</button>
+        <button class="btn nav" data-page="journal">Journal</button>
+        <button class="btn nav" data-page="stats">Stats</button>
+      </nav>
+    </header>
+    <main>
+      <section id="page-chart" class="charts">
+        <div class="chart-box"><div class="chart-label" id="htf-label">M15</div><div id="chart-htf" class="chart"></div></div>
+        <div class="chart-box"><div class="chart-label">M1</div><div id="chart-m1" class="chart"></div></div>
+        <div id="empty" class="empty"></div>
+      </section>
+      <section id="page-journal" class="page" hidden></section>
+      <section id="page-stats" class="page" hidden></section>
+    </main>
+    <div id="toasts"></div>
+    <div id="tag-cards"></div>
+    <div id="status" class="muted"></div>
+    <script type="module" src="/src/live/main.ts"></script>
+  </body>
+</html>

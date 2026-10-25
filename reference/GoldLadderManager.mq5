@@ -1,10 +1,15 @@
 //+------------------------------------------------------------------+
-//| GoldLadderManager.mq5  v3.0 (s5: plan line removed)              |
+//| GoldLadderManager.mq5  v3.0 (s6: BE pull-back, new ladder at BE, |
+//|                        state/command files for Gold Replay live)  |
 //| Manages the trades YOU open, grouped into ladders (max 3).       |
 //| Needs LadderManager.mqh in the same folder.                      |
 //| Manual edits always win; the EA only acts at stage 2 and 3.      |
 //| Panel: drag by the title bar, A-/A+ size, pages < >, NEW LADDER, |
 //|        MOVE TO BE (stage 1, for the ladder shown on the page).   |
+//| s6: MOVE TO BE also pulls a better SL back to average +1 pip;    |
+//|     NEW LADDER only needs every open ladder at BE (no stage 2);  |
+//|     writes Common\Files\GLM_state_<symbol>.json for Gold Replay |
+//|     live and runs its commands from GLM_cmd_<symbol>.txt.        |
 //| Journal: one row per closed ladder in Common\Files\LM_journal.csv|
 //+------------------------------------------------------------------+
 #property version   "3.00"
@@ -39,8 +44,63 @@ input bool   InpJournal          = true;  // Write the trade journal
 input group "Panel"
 input bool   InpResetPanel       = false; // Move the panel back to the top-right corner
 
+input group "Gold Replay live (s6)"
+input bool   InpLiveBridge       = true;  // Share ladder state with Gold Replay live and accept its NEW LADDER / MOVE TO BE
+
 CLadderManager g_lm;
 uint           g_lastPanel=0;
+
+//--- s6: Gold Replay live bridge (files in the terminals' Common\Files folder)
+long   g_cmdSeq=0;
+bool   g_cmdOk=false;
+string g_cmdMsg="";
+string StateFile() { return "GLM_state_"+_Symbol+".json"; }
+string CmdFile()   { return "GLM_cmd_"+_Symbol+".txt"; }
+
+// command line written by Gold Replay live: "seq|action|ladderId"  (action: newLadder, moveToBE)
+void ReadLiveCommand()
+{
+   if(!InpLiveBridge || !FileIsExist(CmdFile(),FILE_COMMON)) return;
+   int h=FileOpen(CmdFile(),FILE_READ|FILE_TXT|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ);
+   if(h==INVALID_HANDLE) return;
+   string line=FileReadString(h);
+   FileClose(h);
+   FileDelete(CmdFile(),FILE_COMMON);
+   string parts[];
+   if(StringSplit(line,'|',parts)<2) return;
+   long seq=StringToInteger(parts[0]);
+   if(seq<=g_cmdSeq) return;
+   string act=parts[1];
+   int ladderId=(ArraySize(parts)>2 ? (int)StringToInteger(parts[2]) : 0);
+   string msg="";
+   bool ok=false;
+   if(act=="newLadder")
+   {
+      ok=g_lm.NewLadder(msg);
+      Print("[LM] NEW LADDER ",(ok?"":"refused - "),msg,"  (from Gold Replay live)");
+   }
+   else if(act=="moveToBE")
+   {
+      if(!g_lm.ShowLadder(ladderId)) msg="ladder not found";
+      else ok=g_lm.MoveToBE(msg);
+      Print("[LM] ",(ok?"":"MOVE TO BE refused - "),msg,"  (from Gold Replay live)");
+   }
+   else msg="unknown command "+act;
+   g_cmdSeq=seq; g_cmdOk=ok; g_cmdMsg=msg;
+}
+
+uint g_lastState=0;
+void WriteLiveState()
+{
+   if(!InpLiveBridge) return;
+   g_lastState=GetTickCount();
+   string tmp="GLM_state_"+_Symbol+".tmp";
+   int h=FileOpen(tmp,FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
+   if(h==INVALID_HANDLE) return;
+   FileWriteString(h,g_lm.StateJson(g_cmdSeq,g_cmdOk,g_cmdMsg));
+   FileClose(h);
+   FileMove(tmp,FILE_COMMON,StateFile(),FILE_COMMON|FILE_REWRITE);
+}
 
 //--- panel state (remembered across restarts)
 int    g_x=-1, g_y=30;          // top-left corner, pixels
@@ -363,6 +423,7 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    EventKillTimer();
+   if(InpLiveBridge && reason!=REASON_CHARTCHANGE) FileDelete(StateFile(),FILE_COMMON);   // live app sees "EA off"
    g_lm.JournalDeinit(reason);
    if(g_drag) ChartSetInteger(0,CHART_MOUSE_SCROLL,g_scrollWas);
    SavePanel();
@@ -373,14 +434,22 @@ void OnTick()
 {
    g_lm.Run();
    if(GetTickCount()-g_lastPanel>300) { RefreshPanel(); g_lastPanel=GetTickCount(); }
+   if(GetTickCount()-g_lastState>250) WriteLiveState();
 }
 
-void OnTimer() { g_lm.Run(); RefreshPanel(); }
+void OnTimer()
+{
+   ReadLiveCommand();
+   g_lm.Run();
+   RefreshPanel();
+   WriteLiveState();
+}
 
 void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &req,const MqlTradeResult &res)
 {
    g_lm.Run();
    RefreshPanel();
+   WriteLiveState();
 }
 
 void OnChartEvent(const int id,const long &lparam,const double &dparam,const string &sparam)

@@ -189,6 +189,8 @@ export class Panel {
     private a: PanelActions,
     pos: { x: number; y: number; collapsed: boolean } | null,
     lot: number,
+    /** war: show "New war account" (simulator only). */
+    opts: { war?: boolean } = {},
   ) {
     const head = el('div', 'panel-head');
     head.append(el('span', 'panel-title', 'GOLD LADDER MANAGER'), this.collapseBtn);
@@ -211,7 +213,8 @@ export class Panel {
     this.closeAllBtn.onclick = () => a.closeAll();
     this.warBtn.onclick = () => a.newWarAccount();
     const globalBtns = el('div', 'row');
-    globalBtns.append(this.newLadderBtn, this.closeAllBtn, this.warBtn);
+    globalBtns.append(this.newLadderBtn, this.closeAllBtn);
+    if (opts.war ?? true) globalBtns.append(this.warBtn);
 
     this.unmanagedBox.append(el('div', 'ladder-title', 'UNMANAGED - opposite to your ladder(s), manage it yourself'));
     this.body.append(orderRow, this.info, this.acct, this.total, globalBtns, this.ladderBox, this.unmanagedBox);

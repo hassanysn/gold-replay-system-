@@ -8,6 +8,9 @@ ladder, including how far price ran after you closed.
 Runs locally on Windows: a one-time Python converter prepares the data, `start.bat` serves the
 app from this folder and opens the browser.
 
+**Live trading:** the same page on your real MT5 account (`start_live.bat`), with the EA as the
+ladder manager. See **[LIVE.md](LIVE.md)**. Test it on a demo account first.
+
 ## Quick start (Windows)
 
 1. Install **Python 3** (python.org, tick "Add python.exe to PATH"). Node is *not* needed to run
@@ -52,6 +55,8 @@ python converter\convert.py sample_ticks.csv
   zone touches, SL hits and stages never stop it.
 - **Sounds** like MT5 desktop: trade opened, trade closed (SL, TP, manager or you), and an alert when
   price touches a marked zone (the replay keeps running).
+- **NEW LADDER** works as soon as every open ladder is at BE: each ticket has an SL and IF SL HITS
+  is zero or better (MOVE TO BE, a stage, or your own SL). No stage 2 needed. Max 3 ladders.
 - **MOVE TO BE** works whenever price is +30 pips or more from the average: it sets the SL to average
   +1 pip on every ticket. If your SL is already better (moved by you, stage 2 or stage 3) the button
   reads **PULL BACK TO BE** and gives that locked profit back on purpose, to leave room for a
@@ -94,6 +99,9 @@ src/ui/         charts, drawing tools, panel, pages, IndexedDB
 tests/          vitest unit tests (+ a fixture written by the Python converter)
 app/            built app (committed so start.bat works without Node)
 serve.py        local server: app/ at /, data/ at /data/, journal API -> journal/
+live/           live MT5 trading: bridge.py (MetaTrader5 package -> 127.0.0.1:8766), mt5_fake.py (tests)
+src/live/       live page: MT5 positions + EA state -> the same panel, charts and journal
+live.html, start_live.bat
 journal_store.py  journal.json + journal.xlsx writer (stdlib only, retries while Excel locks the file)
 reference/      the MT5 EA source the Ladder Manager mirrors
 start.bat, convert.bat
@@ -105,7 +113,8 @@ start.bat, convert.bat
 npm install
 npm test                               # vitest: engine, ladder manager, replay, stats
 python -m unittest discover converter  # converter round-trip tests
-python -m unittest discover -s tests -p "test_*.py"  # Excel journal store
+python -m unittest discover -s tests -p "test_*.py"  # Excel journal store + live bridge (fake MT5)
+python live/bridge.py --fake           # live page against a simulated terminal + EA
 npm run dev                            # Vite dev server (serves ./data too)
 npm run build                          # typecheck + rebuild app/ (commit app/ afterwards)
 ```
@@ -126,9 +135,9 @@ Open the app with `?debug` to get `window.__gr` (chart views, drawing store) in 
 
 ## Ladder Manager = the MT5 EA
 
-The ladder logic is a port of your EA (`reference/LadderManager.mqh` / `reference/GoldLadderManager.mq5` v3.0-s5), so the
+The ladder logic is a port of your EA (`reference/LadderManager.mqh` / `reference/GoldLadderManager.mq5` v3.0-s6), so the
 simulator does what the EA does on a real chart: stages 2/3 from the average (frozen at stage 2),
-MOVE TO BE at average +1 pip from +30 (plus the simulator's pull-back rule, see EA_PARITY.md), "manual always wins", the NEW LADDER gate, the hard lot cap
+MOVE TO BE at average +1 pip from +30 (with the pull-back), "manual always wins", the NEW LADDER gate (every ladder at BE), the hard lot cap
 (0.10 lot per $100 per ladder, excess closed), SL/TP sync with waiting/retry, opposite trades left
 unmanaged, R = worst IF SL HITS seen. Every difference that existed and how it was resolved is in
 **[EA_PARITY.md](EA_PARITY.md)**. EA inputs are on the Settings page.

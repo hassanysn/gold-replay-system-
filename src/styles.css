@@ -120,3 +120,17 @@ fieldset .check { display: flex; margin: 4px 0; }
 td.setup { white-space: normal !important; min-width: 180px; }
 .tags-btn { font-size: 11px; padding: 0 6px; }
 .panel .btn.be.pullback:not(:disabled) { background: #c9a227; border-color: #c9a227; color: #111; }
+
+/* Live (MT5) page */
+.badge { font-weight: 700; padding: 2px 8px; border-radius: 4px; color: #fff; background: #666; letter-spacing: .5px; }
+.badge.demo { background: #2b4f9e; }
+.badge.real { background: #b3261e; }
+.badge.fake { background: #7a5a00; }
+.arm { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border: 1px solid #c8c8c8; border-radius: 4px; cursor: pointer; user-select: none; }
+.arm.on { background: #0f7a3c; border-color: #0f7a3c; color: #fff; font-weight: 600; }
+.arm.blocked { outline: 2px solid #b3261e; }
+.ea-status { padding: 2px 6px; border-radius: 4px; }
+.ea-status.ok { color: #0f7a3c; }
+.ea-status.bad { color: #fff; background: #8a5a00; }
+.panel.disarmed .row.order .btn { opacity: .45; }
+.panel.disarmed .panel-title::after { content: '  (LIVE OFF)'; color: #e0a040; font-weight: 400; }

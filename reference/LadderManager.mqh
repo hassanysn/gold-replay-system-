@@ -1,5 +1,6 @@
 //+------------------------------------------------------------------+
-//| LadderManager.mqh  v3.0 (s5: plan line removed from panel)       |
+//| LadderManager.mqh  v3.0 (s6: BE pull-back, new ladder at BE,    |
+//|                    state/command files for Gold Replay live)     |
 //| Manages the trades YOU open, grouped into ladders (max 3).       |
 //| Per ladder: SL/TP sync, lot cap, stages 1-3. All from AVERAGE.   |
 //| Stage 1 : MOVE TO BE button -> SL = average entry + buffer pips, |
@@ -21,7 +22,7 @@
 #include <Trade/Trade.mqh>
 
 #define LM_MAX 3
-#define LM_VERSION "3.0-s5"
+#define LM_VERSION "3.0-s6"
 #define LM_JFILE "LM_journal.csv"
 
 struct LMPos
@@ -76,6 +77,7 @@ public:
    double   jRefLast;    // last refused auto SL value (not saved)
    bool     jRestarted;  // restored from global variables
    int      jNo;         // rank when it opened (1 = L1)
+   bool     jBePulled;   // s6: MOVE TO BE pulled a better SL back to BE (not saved)
 
    void Reset()
    {
@@ -87,7 +89,7 @@ public:
       jBalBefore=0; jFirstSL=0; jRisk1=0; jRiskMax=0; jRiskSeen=false;
       jLotsTotal=0; jLotsMax=0; jWorst=0; jMfe=0; jMae=0; jMoveSeen=false;
       jSlEdits=0; jSlWidened=false; jS2Time=0; jAutoRef=0; jRefLast=0;
-      jRestarted=false; jNo=0;
+      jRestarted=false; jNo=0; jBePulled=false;
    }
    bool Owns(ulong t)
    {
@@ -1124,11 +1126,16 @@ public:
       }
       double be =N(avg+dir*BEBufferPips*PipSize);
       double cur=(L.hasSL ? L.mSL : 0);
-      if(!Better(L.side,be,cur))
+      // s6: from +BEMinPips the button always works. If the SL is better than BE it is pulled back to
+      // BE on purpose (gives locked profit back for room to retrace); it never goes below BE.
+      bool allAtBE=true;
+      for(int j=0;j<n;j++) if(!Same(p[j].sl,be)) { allAtBE=false; break; }
+      if(cur>0 && Same(cur,be) && allAtBE)
       {
-         msg=Tag(slot)+" SL "+Px(cur)+" is already at or past breakeven "+Px(be)+" - nothing changed";
+         msg=Tag(slot)+" SL is already at average +"+DoubleToString(BEBufferPips,0)+" pip ("+Px(be)+") - nothing changed";
          return false;
       }
+      bool pullBack=(cur>0 && Better(L.side,cur,be));
       if(!SLValidNow(L.side,be))
       {
          msg=Tag(slot)+" BE "+Px(be)+" is too close to price for the broker - press again in a moment";
@@ -1141,6 +1148,7 @@ public:
          return false;
       }
       L.jSlEdits++;
+      if(pullBack) { L.pending=0; L.logWait=-1; L.jBePulled=true; }   // no waiting auto SL re-tightens it
       SaveLadder(slot);
       if(ok<n)
       {
@@ -1148,8 +1156,8 @@ public:
          msg=StringFormat("%s BE %s set on %d of %d ticket(s) - sync will push it to the rest",Tag(slot),Px(be),ok,n);
          return true;
       }
-      msg=StringFormat("%s STAGE 1 | SL %s -> %s (average %s +%.0f pip) | price %+.1f pips",
-                       Tag(slot),Px(cur),Px(be),Px(avg),BEBufferPips,pips);
+      msg=StringFormat("%s %s | SL %s -> %s (average %s +%.0f pip) | price %+.1f pips",
+                       Tag(slot),(pullBack?"BE PULL-BACK":"STAGE 1"),Px(cur),Px(be),Px(avg),BEBufferPips,pips);
       return true;
    }
 
@@ -1162,22 +1170,10 @@ public:
          LMPos p[];   int n=LadderPos(m_cur,all,na,p);
          if(n==0) { msg=LN(m_cur)+" has no trades yet - use it first"; return false; }
       }
-      for(int i=0;i<LM_MAX;i++)          // v3: every open ladder must have reached stage 2
-         if(m_L[i].id>0 && m_L[i].stage<2)
-         { msg=LN(i)+" has not reached stage 2 yet (SL at average +"+DoubleToString(S2LockPips,0)+" pips)"; return false; }
-      if(ActiveCount()>=LM_MAX) { msg="maximum "+(string)LM_MAX+" ladders are open"; return false; }
-
-      LMPos all[]; int na=Snapshot(all);
+      // s6: no stage 2 needed - every open ladder only has to be at BE (all tickets have an SL and
+      // IF SL HITS >= 0). Max 3 ladders.
       string locked="";
-      for(int i=0;i<LM_MAX;i++)
-      {
-         if(m_L[i].id<=0) continue;
-         double r;
-         bool lim=LadderRisk(i,all,na,r);
-         if(!lim)        { msg=LN(i)+" has a ticket with NO SL"; return false; }
-         if(r<-0.005)    { msg=LN(i)+" still at risk ("+Money(r)+" if SL hits)"; return false; }
-         locked+=(locked==""?"":", ")+LN(i)+" locked "+Money(r);
-      }
+      if(!NewLadderAllowed(msg,locked)) return false;
       int slot=FreeSlot();
       if(slot<0) { msg="no free ladder slot"; return false; }
       m_L[slot].Reset();
@@ -1196,7 +1192,78 @@ public:
       return true;
    }
 
+   //--- s6: NEW LADDER gate (also exported for Gold Replay live) -------
+   bool NewLadderAllowed(string &why,string &locked)
+   {
+      why=""; locked="";
+      if(m_cur>=0)
+      {
+         LMPos all0[]; int na0=Snapshot(all0);
+         LMPos p0[];   int n0=LadderPos(m_cur,all0,na0,p0);
+         if(n0==0) { why=LN(m_cur)+" has no trades yet - use it first"; return false; }
+      }
+      if(ActiveCount()>=LM_MAX) { why="maximum "+(string)LM_MAX+" ladders are open"; return false; }
+      LMPos all[]; int na=Snapshot(all);
+      for(int i=0;i<LM_MAX;i++)
+      {
+         if(m_L[i].id<=0) continue;
+         double r;
+         bool lim=LadderRisk(i,all,na,r);
+         if(!lim)        { why=LN(i)+" has a ticket with NO SL"; return false; }
+         if(r<-0.005)    { why=LN(i)+" is not at BE yet ("+Money(r)+" if SL hits)"; return false; }
+         locked+=(locked==""?"":", ")+LN(i)+" locked "+Money(r);
+      }
+      return true;
+   }
+
+   //--- s6: state for Gold Replay live (JSON, written to Common\Files by the EA) ----
+   string JS(string s) { StringReplace(s,"\\","\\\\"); StringReplace(s,"\"","\\\""); return "\""+s+"\""; }
+   string StateJson(long cmdSeq,bool cmdOk,string cmdMsg)
+   {
+      LMPos all[]; int na=Snapshot(all);
+      string why,locked;
+      bool canNew=NewLadderAllowed(why,locked);
+      string js="{\"version\":"+JS(LM_VERSION)+",\"symbol\":"+JS(_Symbol)+
+                ",\"time\":"+(string)(long)TimeCurrent()+",\"lotCap\":"+DoubleToString(LotCap(),2)+
+                ",\"canNewLadder\":"+(canNew?"true":"false")+",\"newLadderWhy\":"+JS(why)+
+                ",\"cmd\":{\"seq\":"+(string)cmdSeq+",\"ok\":"+(cmdOk?"true":"false")+",\"msg\":"+JS(cmdMsg)+"}"+
+                ",\"settings\":{\"beMin\":"+DoubleToString(BEMinPips,2)+",\"beBuf\":"+DoubleToString(BEBufferPips,2)+
+                ",\"s2t\":"+DoubleToString(S2TrigPips,2)+",\"s2l\":"+DoubleToString(S2LockPips,2)+
+                ",\"s3t\":"+DoubleToString(S3TrigPips,2)+",\"s3l\":"+DoubleToString(S3LockPips,2)+
+                ",\"pip\":"+DoubleToString(PipSize,5)+"}"+
+                ",\"ladders\":[";
+      bool first=true;
+      for(int i=0;i<LM_MAX;i++)
+      {
+         if(m_L[i].id<=0) continue;
+         CLadder *L=GetPointer(m_L[i]);
+         LMPos p[]; int n=LadderPos(i,all,na,p);
+         string tk="";
+         for(int j=0;j<n;j++) tk+=(j>0?",":"")+(string)p[j].ticket;
+         js+=(first?"":",")+"{\"id\":"+(string)L.id+",\"rank\":"+(string)Rank(i)+
+             ",\"side\":"+(string)L.side+",\"stage\":"+(string)L.stage+
+             ",\"anchor\":"+DoubleToString(L.anchor,_Digits)+",\"next\":"+DoubleToString(L.next,_Digits)+
+             ",\"pending\":"+DoubleToString(L.pending,_Digits)+
+             ",\"sl\":"+DoubleToString(L.hasSL?L.mSL:0,_Digits)+",\"tp\":"+DoubleToString(L.hasTP?L.mTP:0,_Digits)+
+             ",\"riskSeen\":"+(L.jRiskSeen?"true":"false")+",\"riskMax\":"+DoubleToString(L.jRiskMax,2)+
+             ",\"firstSL\":"+DoubleToString(L.jFirstSL,_Digits)+",\"risk1\":"+DoubleToString(L.jRisk1,2)+
+             ",\"bePulled\":"+(L.jBePulled?"true":"false")+
+             ",\"start\":"+(string)(long)L.start+",\"current\":"+(i==m_cur?"true":"false")+
+             ",\"tickets\":["+tk+"]}";
+         first=false;
+      }
+      return js+"]}";
+   }
+
    //--- panel data ----------------------------------------------------
+   // s6: show the ladder with this id on the panel page (MOVE TO BE acts on the page's ladder)
+   bool ShowLadder(int id)
+   {
+      int slot=SlotOfId(id);
+      if(slot<0) return false;
+      m_page=slot;
+      return true;
+   }
    int  LadderCount()  { return ActiveCount(); }
    void PageNext()
    {
