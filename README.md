@@ -40,16 +40,24 @@ python converter\convert.py sample_ticks.csv
 | Panel | The EA panel: movable (drag the title), `-`/`+` collapses it. Lot + SELL/BUY, balance / cap / ladders, TOTAL IF SL HITS, NEW LADDER, Close all, New war account, per ladder the EA's lines + SL/TP + MOVE TO BE + setup tags, unmanaged tickets (no PLAN line: removed from the EA in v3.0-s5) |
 | Journal | Every closed ladder, with setup tags, M1 screenshot at close (img), MFE, 4 h post-close run and a "why I closed" note. Also saved to `journal/journal.xlsx` (see below) |
 | Stats | Ladder / normal filter, date range, win rate, average R, % of move captured, ladders closed below 1R, CSV export |
-| Settings | Account (balance, leverage, contract size, commission, stop-out, stops level), EA inputs, auto-pause toggles (zone, SL, stage), speed lock, sounds on/off, server UTC offset |
+| Settings | Account (balance, leverage, contract size, commission, stop-out, stops level), EA inputs, speed lock, sounds on/off, server UTC offset |
 
 - **Nothing after the replay time is ever sent to the page.** The tick data lives in a Web Worker.
 - **✂ Cut** (C), like TradingView's replay scissors: hover a candle on either chart (the part that
   will be hidden is shaded), click, and the replay restarts with that candle as the last one shown.
   Your drawings stay. You can only cut back to a finished candle; to jump ahead, pick a date and Load.
 - **Orders** fill on the first tick at or after the click: buy at ask, sell at bid. Buy SL/TP trigger
-  on bid, sell SL/TP on ask. A fill never pauses the replay (a real chart keeps moving); a zone touch,
-  an SL hit and the management stages can (Settings).
-- **Sounds** like MT5 desktop: trade opened, trade closed (SL, TP, manager or you), zone alert.
+  on bid, sell SL/TP on ask.
+- **No auto-pause.** Like a real chart, the replay only pauses when you press Space (or Pause). Fills,
+  zone touches, SL hits and stages never stop it.
+- **Sounds** like MT5 desktop: trade opened, trade closed (SL, TP, manager or you), and an alert when
+  price touches a marked zone (the replay keeps running).
+- **MOVE TO BE** works whenever price is +30 pips or more from the average: it sets the SL to average
+  +1 pip on every ticket. If your SL is already better (moved by you, stage 2 or stage 3) the button
+  reads **PULL BACK TO BE** and gives that locked profit back on purpose, to leave room for a
+  retracement (for example after an MSS on the lower timeframe). It never goes below average +1 pip,
+  so the ladder stays risk-free. Stage 2 does not fire again afterwards; stage 3 still does. The
+  journal counts it as an SL edit and marks the ladder "BE pulled back: yes".
 - **SL/TP**: type a price in the ladder's SL/TP box and press Enter, or drag the SL/TP line on the M1
   chart. Dragging the average-entry line creates an SL (loss side) or TP (profit side). Like the EA,
   your edit becomes the ladder SL/TP and is copied to every ticket; an edit on the wrong side of price
@@ -113,14 +121,14 @@ Open the app with `?debug` to get `window.__gr` (chart views, drawing store) in 
 | 3. Orders + account | done | Bid/ask fills, margin/equity/margin level, margin rejection, stop-out → blown → New war account, settings page |
 | 4. Ladder Manager + panel | done | Port of the MT5 EA v3.0; 32 engine tests for the EA rules (stages, frozen average, BE, cap, gate, sync/wait, R); panel checked in the browser |
 | 5. Drawing tools | done | Rect/H-line/Text, select/move/resize/delete, HTF↔M1, saved per day, restored on reload |
-| 6. Auto-pause + speed lock | done | Zone touch, SL, stages (each toggle; a fill never pauses), speed lock 1x/2x |
+| 6. Auto-pause + speed lock | changed | Auto-pause removed at your request (2026-10-25): only Space pauses; zone touch plays an alert. Speed lock 1x/2x kept |
 | 7. Journal + stats + CSV | done | Auto-journal, MFE, 4 h post-close run (finished from data if you leave the session early), screenshot, note, stats, CSV |
 
 ## Ladder Manager = the MT5 EA
 
 The ladder logic is a port of your EA (`reference/LadderManager.mqh` / `reference/GoldLadderManager.mq5` v3.0-s5), so the
 simulator does what the EA does on a real chart: stages 2/3 from the average (frozen at stage 2),
-MOVE TO BE at average +1 pip from +30, "manual always wins", the NEW LADDER gate, the hard lot cap
+MOVE TO BE at average +1 pip from +30 (plus the simulator's pull-back rule, see EA_PARITY.md), "manual always wins", the NEW LADDER gate, the hard lot cap
 (0.10 lot per $100 per ladder, excess closed), SL/TP sync with waiting/retry, opposite trades left
 unmanaged, R = worst IF SL HITS seen. Every difference that existed and how it was resolved is in
 **[EA_PARITY.md](EA_PARITY.md)**. EA inputs are on the Settings page.

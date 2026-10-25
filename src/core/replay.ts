@@ -8,6 +8,9 @@ import type { Engine, EngineEvent } from './engine';
 /** Gaps without ticks longer than this are skipped while playing (market closed, day breaks, weekends). */
 export const GAP_SKIP_MS = 30 * 60_000;
 
+/** A zone alert re-arms once price has moved this far (price units, 10 pips) away from the zone. */
+export const ZONE_REARM = 1.0;
+
 export interface Zone {
   id: string;
   t1: number; // abs ms
@@ -17,24 +20,16 @@ export interface Zone {
   extendRight: boolean;
 }
 
-/** Auto-pause triggers. A trade fill never pauses: on a real chart the market keeps moving. */
-export interface AutoPauseSettings {
-  zone: boolean;
-  sl: boolean;
-  stage: boolean;
-}
-
-export type ReplayEvent = EngineEvent | { type: 'zone'; zoneId: string } | { type: 'autopause'; reason: string };
+/** Replay events. There is no auto-pause: like a real chart the replay only stops when you pause it
+ *  (a zone touch is reported as an event, for the alert sound). */
+export type ReplayEvent = EngineEvent | { type: 'zone'; zoneId: string };
 
 export interface AdvanceResult {
-  pausedBy: string | null;
   /** Manifest index of a day file that must be loaded before replay can continue. */
   needDay: number | null;
   end: boolean;
   processed: number;
 }
-
-const STAGE_PAUSE = ['', 'BE allowed (+30)', 'Stage 2 reached (+50)', 'Stage 3 reached (+100)'];
 
 export class Replay {
   readonly candles: Record<TfName, CandleBuilder>;
@@ -50,12 +45,12 @@ export class Replay {
   zones: Zone[] = [];
   events: ReplayEvent[] = [];
   private loaded = new Map<number, DayData>();
-  private inside = new Map<string, boolean>();
+  /** Zone alert armed: fires once on entry, re-arms after price has moved ZONE_REARM away from the zone. */
+  private armed = new Map<string, boolean>();
 
   constructor(
     readonly manifest: readonly ManifestDay[],
     readonly engine: Engine,
-    public autoPause: AutoPauseSettings,
   ) {
     this.candles = { M1: new CandleBuilder(TF_MS.M1), M15: new CandleBuilder(TF_MS.M15), M30: new CandleBuilder(TF_MS.M30) };
   }
@@ -122,22 +117,22 @@ export class Replay {
     return dayStartMs(this.manifest[j].date) + this.manifest[j].firstMs;
   }
 
-  /** Processes every tick with time < target, stopping early on an auto-pause event. */
+  /** Processes every tick with time < target. */
   advanceTo(target: number): AdvanceResult {
     let processed = 0;
     for (;;) {
       const d = this.loaded.get(this.di);
-      if (!d) return { pausedBy: null, needDay: this.di, end: false, processed };
+      if (!d) return { needDay: this.di, end: false, processed };
       if (this.ti >= d.count) {
         const j = this.di + 1;
         if (j >= this.manifest.length) {
           this.clock = Math.max(this.clock, target);
-          return { pausedBy: null, needDay: null, end: true, processed };
+          return { needDay: null, end: true, processed };
         }
         if (!this.loaded.has(j)) {
           const nextFirst = dayStartMs(this.manifest[j].date) + this.manifest[j].firstMs;
           this.clock = Math.max(this.clock, Math.min(target, nextFirst));
-          return { pausedBy: null, needDay: target > nextFirst ? j : null, end: false, processed };
+          return { needDay: target > nextFirst ? j : null, end: false, processed };
         }
         this.di = j;
         this.ti = 0;
@@ -149,15 +144,10 @@ export class Replay {
       const ask = d.asks[this.ti] / d.scale;
       this.ti++;
       processed++;
-      const reason = this.processTick(t, bid, ask);
-      if (reason) {
-        this.clock = t + 1;
-        this.events.push({ type: 'autopause', reason });
-        return { pausedBy: reason, needDay: null, end: false, processed };
-      }
+      this.processTick(t, bid, ask);
     }
     this.clock = Math.max(this.clock, target);
-    return { pausedBy: null, needDay: null, end: false, processed };
+    return { needDay: null, end: false, processed };
   }
 
   /** Advances by `delta` ms of replay time; long gaps without ticks are jumped over. */
@@ -174,7 +164,7 @@ export class Replay {
    */
   step(tfMs: number): AdvanceResult {
     const nt = this.peekTime();
-    if (nt === null) return { pausedBy: null, needDay: null, end: true, processed: 0 };
+    if (nt === null) return { needDay: null, end: true, processed: 0 };
     let b = Math.floor(this.clock / tfMs) * tfMs + tfMs;
     const formingHasTicks = this.lastTickTime !== null && this.lastTickTime >= b - tfMs;
     if (!formingHasTicks && nt >= b) b = Math.floor(nt / tfMs) * tfMs + tfMs;
@@ -184,15 +174,16 @@ export class Replay {
   /** Lets the next queued order fill right away: processes exactly the next tick. */
   processNextTick(): AdvanceResult {
     const nt = this.peekTime();
-    if (nt === null) return { pausedBy: null, needDay: null, end: true, processed: 0 };
+    if (nt === null) return { needDay: null, end: true, processed: 0 };
     return this.advanceTo(Math.max(this.clock, nt + 1));
   }
 
   setZones(zones: Zone[]): void {
     this.zones = zones;
     const next = new Map<string, boolean>();
-    for (const z of zones) next.set(z.id, this.zoneContains(z, this.clock, this.bid));
-    this.inside = next;
+    // a zone drawn around the current price is not "touched" until price leaves it and comes back
+    for (const z of zones) next.set(z.id, this.armed.get(z.id) ?? !this.zoneContains(z, this.clock, this.bid));
+    this.armed = next;
   }
 
   private zoneContains(z: Zone, t: number, price: number): boolean {
@@ -200,7 +191,7 @@ export class Replay {
     return active && price >= z.low && price <= z.high;
   }
 
-  private processTick(t: number, bid: number, ask: number): string | null {
+  private processTick(t: number, bid: number, ask: number): void {
     this.bid = bid;
     this.ask = ask;
     this.lastTickTime = t;
@@ -208,25 +199,15 @@ export class Replay {
     this.candles.M15.add(t, bid);
     this.candles.M30.add(t, bid);
     this.engine.onTick(t, bid, ask);
-    let reason: string | null = null;
-    const ap = this.autoPause;
-    for (const ev of this.engine.takeEvents()) {
-      this.events.push(ev);
-      if (reason) continue;
-      if (ev.type === 'sl' && ap.sl) reason = ev.reason === 'SL' ? 'SL hit' : 'Stage SL hit';
-      else if (ev.type === 'stopout') reason = 'Stop-out';
-      else if (ev.type === 'stage' && ap.stage) reason = STAGE_PAUSE[ev.stage];
-    }
+    for (const ev of this.engine.takeEvents()) this.events.push(ev);
     for (const z of this.zones) {
-      const now = this.zoneContains(z, t, bid);
-      const was = this.inside.get(z.id) ?? false;
-      this.inside.set(z.id, now);
-      if (now && !was) {
-        this.events.push({ type: 'zone', zoneId: z.id });
-        if (!reason && ap.zone) reason = 'Price touched a zone';
-      }
+      if (this.zoneContains(z, t, bid)) {
+        if (this.armed.get(z.id)) {
+          this.armed.set(z.id, false);
+          this.events.push({ type: 'zone', zoneId: z.id });
+        }
+      } else if (bid >= z.high + ZONE_REARM || bid <= z.low - ZONE_REARM) this.armed.set(z.id, true);
     }
-    return reason;
   }
 
   /** Events since the last call, including engine events raised by user actions between ticks. */

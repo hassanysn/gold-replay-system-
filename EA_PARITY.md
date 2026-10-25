@@ -22,8 +22,8 @@ All defaults are the EA's input defaults.
 | 4 | Stage 3 trigger after a settings change | `next` recomputed from the anchor every pass (follows a panel change) | Fixed constants | Same as EA |
 | 5 | BE level | avg **+1 pip** (`BEBufferPips` is added in the profit direction) | avg +1 − 1 buffer = **avg exactly** | avg +1 pip |
 | 6 | BE availability | **Live** check at the moment you press: price must be ≥ +30 from the **live** average now | Stayed available once +30 had been reached | Live check, like the EA (refused "TOO EARLY" with the BE price) |
-| 7 | BE refused when SL already better | "already at or past breakeven - nothing changed" | Same idea (button disabled) | Same message as EA |
-| 8 | BE and "stage 1" | Not a stored stage; counts as an SL edit (`jSlEdits++`) | Stage 1 stored as "BE available" | Not a stage; counts as SL edit. "+30 reached" is kept only to drive the spec's auto-pause |
+| 7 | BE when SL already better | Refused: "already at or past breakeven - nothing changed" | Same idea (button disabled) | **Deliberate difference (your rule, 2026-10-25):** allowed from +30; pulls the SL back to average +1 pip ("PULL BACK TO BE"), never below it; stage unchanged (no stage 2 re-fire, stage 3 still fires); journal `be_pulled_back`. Update the EA to match if you want the real chart to behave the same |
+| 8 | BE and "stage 1" | Not a stored stage; counts as an SL edit (`jSlEdits++`) | Stage 1 stored as "BE available" | Not a stage; counts as SL edit (a pull-back too) |
 | 9 | "Manual always wins" | EA moves the SL only at its own events (stage 2, stage 3, BE button) and only if its level is **better** than your SL; otherwise logs "not applied - your SL is already better" | Never-backwards check per ticket | Compared with the ladder SL, same log line |
 | 10 | Your SL edit vs a waiting auto SL | Your edit **cancels** a pending auto SL ("your edit wins") | No pending concept | Same as EA |
 | 11 | Auto SL too close to price (stops level) | Steps back by the **spread** up to 5 times, sets the looser SL, keeps the target **pending** and tightens later; retry after `RetryCooldownSec` | Invalid stop skipped, never retried | Same as EA; broker stops level is a new setting (default 0 points) |
@@ -74,5 +74,5 @@ All defaults are the EA's input defaults.
 
 ## Simulator-only training features (not in the EA)
 
-Speed lock, auto-pause (zone touch, SL, BE allowed / stage 2 / stage 3; never on a fill), sounds, setup tags, Excel journal, 4 h post-close run,
+Speed lock, sounds (zone touch is an alert only; there is no auto-pause, like a real chart), setup tags, Excel journal, 4 h post-close run,
 % of move captured, M1 screenshot at close, notes, stats page.

@@ -155,6 +155,8 @@ export interface Ladder {
   /** Simulator only: +BEMinPips reached once (auto-pause "BE available"). */
   beReached: boolean;
   beApplied: boolean;
+  /** MOVE TO BE was used to pull a better SL back to average + buffer. */
+  bePulledBack: boolean;
   // journal (EA v2.2 fields)
   no: number;
   balBefore: number;
@@ -212,6 +214,7 @@ export interface JournalRecord {
   highestStage: (typeof STAGE_NAMES)[number];
   stage2Time: number | null;
   beApplied: boolean;
+  bePulledBack: boolean;
   exitReason: ExitReason;
   closedBy: Record<ClosedBy, number>;
   autoSlRefused: number;
@@ -296,6 +299,8 @@ export interface LadderView {
   /** "BE done" / "BE allowed" / "BE from <price>" */
   beText: string;
   beEnabled: boolean;
+  /** Pressing MOVE TO BE now would pull a better SL back to average + buffer. */
+  bePullBack: boolean;
   beApplied: boolean;
   stage: 0 | 2 | 3;
   stageText: string;
@@ -685,7 +690,14 @@ export class Engine {
     t.tp = price;
   }
 
-  /** MOVE TO BE (stage 1) for one ladder. */
+  /**
+   * MOVE TO BE (stage 1) for one ladder. Allowed whenever price is +BEMinPips or more from the live
+   * average. Sets SL = average + BE buffer on every ticket - also when the current SL is better
+   * (moved by you, stage 2 or stage 3): that "pull-back" gives locked profit back on purpose, to leave
+   * room for a retracement. It never goes below average + buffer, so the ladder stays risk-free.
+   * The stage does not change: stage 2 does not fire again, stage 3 still fires at its trigger.
+   * (Simulator rule from 2026-10-25; the EA v3.0-s5 refuses BE when the SL is already past it.)
+   */
   applyBE(ladderId: number): boolean {
     const u = this.userLadder(ladderId);
     if (!u) return false;
@@ -700,8 +712,8 @@ export class Engine {
       return false;
     }
     const be = this.N(avg + d * s.beBufferPips * PIP);
-    if (!this.better(dir, be, l.sl)) {
-      this.notice(`MOVE TO BE refused - ${this.tag(l)} SL ${this.px(l.sl)} is already at or past breakeven ${this.px(be)} - nothing changed`);
+    if (this.same(be, l.sl) && ts.every((t) => this.same(t.sl, be))) {
+      this.notice(`MOVE TO BE - ${this.tag(l)} SL is already at average +${s.beBufferPips} pip (${this.px(be)}) - nothing changed`);
       return false;
     }
     if (!this.slValidNow(dir, be)) {
@@ -709,11 +721,24 @@ export class Engine {
       return false;
     }
     const before = l.sl;
+    const pullBack = this.better(dir, before, be);
+    const lockedBefore = pullBack ? this.ifSLHits(ts) : null;
     this.modifyAll(l, ts, be);
     l.slEdits++;
     l.beApplied = true;
+    if (pullBack) l.bePulledBack = true;
+    if (l.pending !== null) {
+      this.notice(`${this.tag(l)} your edit wins - waiting auto SL ${this.px(l.pending)} cancelled`);
+      l.pending = null;
+      l.logWait = null;
+    }
     this.run();
-    this.notice(`${this.tag(l)} STAGE 1 | SL ${this.px(before)} -> ${this.px(be)} (average ${this.px(this.N(avg))} +${s.beBufferPips} pip) | price ${pips >= 0 ? '+' : ''}${pips.toFixed(1)} pips`);
+    if (pullBack) {
+      const given = lockedBefore !== null ? lockedBefore - (this.ifSLHits(ts) ?? 0) : null;
+      this.notice(`${this.tag(l)} BE PULL-BACK | SL ${this.px(before)} -> ${this.px(be)} (average ${this.px(this.N(avg))} +${s.beBufferPips} pip)${given !== null ? ` | gives back ${this.money(given).replace('+', '')} of locked profit` : ''} | price ${pips >= 0 ? '+' : ''}${pips.toFixed(1)} pips`);
+    } else {
+      this.notice(`${this.tag(l)} STAGE 1 | SL ${this.px(before)} -> ${this.px(be)} (average ${this.px(this.N(avg))} +${s.beBufferPips} pip) | price ${pips >= 0 ? '+' : ''}${pips.toFixed(1)} pips`);
+    }
     return true;
   }
 
@@ -772,6 +797,7 @@ export class Engine {
       syncLogWait: false,
       beReached: false,
       beApplied: false,
+      bePulledBack: false,
       no: 0,
       balBefore: 0,
       firstSL: null,
@@ -1151,6 +1177,7 @@ export class Engine {
       highestStage: STAGE_NAMES[l.stage],
       stage2Time: l.s2Time,
       beApplied: l.beApplied,
+      bePulledBack: l.bePulledBack,
       exitReason: l.exitReason ?? 'manual close',
       closedBy,
       autoSlRefused: l.autoRefused,
@@ -1196,6 +1223,7 @@ export class Engine {
       highestStage: 'none',
       stage2Time: null,
       beApplied: false,
+      bePulledBack: false,
       exitReason: t.closeReason ?? 'manual close',
       closedBy: { sl: 0, tp: 0, manager: 0, you: 0, other: 0, [t.closedBy ?? 'you']: 1 } as Record<ClosedBy, number>,
       autoSlRefused: 0,
@@ -1327,6 +1355,7 @@ export class Engine {
           pips: 0,
           beText: '',
           beEnabled: false,
+          bePullBack: false,
           stageText: `${l.dir ? l.dir.toUpperCase() : ''} empty - your next trades join this ladder`.trim(),
           ifSLHits: null,
           ifSLHitsPct: null,
@@ -1347,7 +1376,8 @@ export class Engine {
       // the button acts on the live average, like MoveToBE
       const liveAvg = Engine.average(l);
       const liveBE = this.N(liveAvg + d * s.beBufferPips * PIP);
-      const beEnabled = pipsFrom(l.dir, liveAvg, q.bid, q.ask) >= s.beMinPips - 1e-6 && this.better(l.dir, liveBE, l.sl);
+      const beEnabled = pipsFrom(l.dir, liveAvg, q.bid, q.ask) >= s.beMinPips - 1e-6 && !(this.same(liveBE, l.sl) && ts.every((t) => this.same(t.sl, liveBE)));
+      const bePullBack = beEnabled && this.better(l.dir, l.sl, liveBE);
       let stageText: string;
       if (l.stage === 0) {
         const s2 = this.N(avg + d * s.s2LockPips * PIP);
@@ -1369,6 +1399,7 @@ export class Engine {
         pips,
         beText,
         beEnabled,
+        bePullBack,
         stageText,
         ifSLHits: risk,
         ifSLHitsPct: risk !== null && risk < -0.005 && this.balance > 0 ? (-risk / this.balance) * 100 : null,

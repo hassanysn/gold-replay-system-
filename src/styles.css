@@ -119,3 +119,4 @@ fieldset .check { display: flex; margin: 4px 0; }
 .tag-card-buttons { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
 td.setup { white-space: normal !important; min-width: 180px; }
 .tags-btn { font-size: 11px; padding: 0 6px; }
+.panel .btn.be.pullback:not(:disabled) { background: #c9a227; border-color: #c9a227; color: #111; }

@@ -17,6 +17,7 @@ function rec(p: Partial<JournalRecord>): JournalRecord {
     R: 20,
     highestStage: 'none',
     beApplied: false,
+    bePulledBack: false,
     exitReason: 'manual close',
     result: 0,
     resultR: 0,

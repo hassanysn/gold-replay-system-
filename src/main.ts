@@ -228,7 +228,6 @@ function loadAt(date: string, time: string) {
     account: settings.account,
     balance: account.balance,
     blown: account.blown,
-    autoPause: settings.autoPause,
     speedLock: settings.speedLock,
     zones: [],
   });
@@ -348,7 +347,7 @@ const settingsPage = new SettingsPage(
     settings = s;
     void saveSettings(s);
     setSoundEnabled(s.sound);
-    send({ type: 'settings', account: s.account, autoPause: s.autoPause, speedLock: s.speedLock });
+    send({ type: 'settings', account: s.account, speedLock: s.speedLock });
     if (lastFrame) updateControls(lastFrame);
   },
 );
@@ -389,11 +388,11 @@ function applyBars(f: Frame) {
 function applyFrame(f: Frame) {
   applyBars(f);
   lastFrame = f;
-  // One sound per kind per frame, like MT5: trade opened, trade closed, zone alert.
+  // One sound per kind per frame, like MT5: trade opened, trade closed, zone touched (alert).
   const kinds = new Set(f.events.map((e) => e.type));
   if (kinds.has('fill')) playOpen();
   if (kinds.has('close')) playClose();
-  if (kinds.has('zonePause')) playAlert();
+  if (kinds.has('zone')) playAlert(); // price alert only: the replay keeps running
   tradeLines.update(f.snap);
   panel.update(f.snap);
   updateControls(f);

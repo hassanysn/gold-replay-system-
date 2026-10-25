@@ -95,6 +95,7 @@ const COLUMNS: [string, (r: JournalRecord) => Cell][] = [
   ['result_pips', (r) => num(r.resultPips)],
   ['highest_stage', (r) => r.highestStage],
   ['be_applied', (r) => (r.beApplied ? 'yes' : 'no')],
+  ['be_pulled_back', (r) => (r.bePulledBack ? 'yes' : 'no')],
   ['exit_reason', (r) => r.exitReason],
   ['mfe_pips', (r) => num(r.mfePips)],
   ['post_close_run_pips', (r) => num(r.postClosePips)],

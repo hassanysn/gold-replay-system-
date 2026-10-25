@@ -29,13 +29,12 @@ function manifestOf(days: DayData[]): ManifestDay[] {
   return days.map((d) => ({ date: d.date, file: `${d.date}.bin`, ticks: d.count, digits: 2, firstMs: d.times[0], lastMs: d.times[d.count - 1] }));
 }
 
-const AP = { zone: true, sl: true, stage: true };
 const H = 3_600_000;
 const M = 60_000;
 
-function setup(days: DayData[], ap = AP) {
+function setup(days: DayData[]) {
   const engine = new Engine({ ...DEFAULT_ACCOUNT, lotPer100: 0 }, 10_000, 2);
-  const r = new Replay(manifestOf(days), engine, ap);
+  const r = new Replay(manifestOf(days), engine);
   days.forEach((d, i) => r.setDay(i, d));
   return r;
 }
@@ -116,7 +115,7 @@ describe('replay', () => {
 
   it('asks for the next day file when it is not loaded', () => {
     const engine = new Engine(DEFAULT_ACCOUNT, 50, 2);
-    const r = new Replay(manifestOf([d1, d2]), engine, AP);
+    const r = new Replay(manifestOf([d1, d2]), engine);
     r.setDay(0, d1);
     r.start(0, d1.dayStart + 23 * H + 1, 0);
     const res = r.play(1000);
@@ -150,27 +149,40 @@ describe('replay', () => {
     expect(r.engine.ladders[0].tickets[0].openPrice).toBe(2002.2);
   });
 
-  it('never pauses on a fill; auto-pauses on stage and zone touch (each can be turned off)', () => {
+  it('never pauses by itself: fills, BE allowed, stages, SL and zone touches all keep running', () => {
     const rows: [number, number, number][] = [];
     for (let i = 0; i < 200; i++) rows.push([H + i * 1000, 2000 + i * 0.1, 2000.2 + i * 0.1]);
+    for (let i = 0; i < 100; i++) rows.push([H + (200 + i) * 1000, 2020 - i * 0.2, 2020.2 - i * 0.2]);
     const d = day('2026-10-09', rows);
     const r = setup([d]);
     r.start(0, d.dayStart + H + 500, 0);
-    r.engine.placeOrder('buy', 0.1);
-    // fills at 2000.3 on tick 1 and keeps running, like a real chart
-    expect(r.play(10 * M).pausedBy).toBe('BE allowed (+30)');
-    expect(r.engine.openTickets()[0].openPrice).toBeCloseTo(2000.3, 6);
-    expect(r.bid).toBeCloseTo(2003.3, 6); // fill at ask 2000.30 + 30 pips
     r.setZones([{ id: 'z', t1: d.dayStart, t2: d.dayStart + 1, low: 2004, high: 2005, extendRight: true }]);
-    expect(r.play(10 * M).pausedBy).toBe('Price touched a zone');
-    expect(r.bid).toBeCloseTo(2004, 6);
-    expect(r.play(10 * M).pausedBy).toBe('Stage 2 reached (+50)');
-    r.autoPause = { ...AP, stage: false };
-    expect(r.play(10 * M).pausedBy).toBe(null);
-    expect(r.engine.ladders[0].stage).toBe(3);
+    r.engine.placeOrder('buy', 0.1);
+    const res = r.play(10 * M); // one call runs through all 300 ticks
+    expect(res.processed).toBe(299);
+    const ev = r.takeEvents().map((e) => e.type);
+    expect(ev).toContain('fill');
+    expect(ev).toContain('zone'); // still reported, for the alert sound
+    expect(ev).toContain('stage');
+    expect(ev).toContain('sl'); // stage 3 SL hit on the way down
+    expect(r.engine.openTickets().length).toBe(0);
   });
 
-  it('does not auto-pause on a zone that does not extend right once its time has passed', () => {
+  it('alerts once per zone touch and re-arms only after price moved 10 pips away', () => {
+    const rows: [number, number, number][] = [];
+    const path = [2000, 2004.5, 2003.5, 2004.5, 2003.6, 2004.6, 2000, 2004.5]; // wobble at the zone edge, then leave and return
+    path.forEach((p, i) => rows.push([H + i * 1000, p, p + 0.2]));
+    const d = day('2026-10-09', rows);
+    const r = setup([d]);
+    r.start(0, d.dayStart + H + 1, 0);
+    r.setZones([{ id: 'z', t1: d.dayStart, t2: d.dayStart, low: 2004, high: 2005, extendRight: true }]);
+    r.play(5000); // 2004.5, 2003.5, 2004.5, 2003.6, 2004.6: only the first touch alerts
+    expect(r.takeEvents().filter((e) => e.type === 'zone').length).toBe(1);
+    r.play(5000); // drops to 2000 (more than 10 pips away), comes back
+    expect(r.takeEvents().filter((e) => e.type === 'zone').length).toBe(1);
+  });
+
+  it('reports a zone touch only while the zone is live', () => {
     const d = day('2026-10-09', [
       [H, 2000, 2000.2],
       [H + 1000, 2010, 2010.2],
@@ -180,8 +192,10 @@ describe('replay', () => {
     const r = setup([d]);
     r.start(0, d.dayStart + H + 1, 0);
     r.setZones([{ id: 'z', t1: d.dayStart, t2: d.dayStart + H + 1500, low: 2005, high: 2015, extendRight: false }]);
-    expect(r.play(1000).pausedBy).toBe('Price touched a zone');
-    expect(r.play(5000).pausedBy).toBe(null);
+    r.play(1000);
+    expect(r.takeEvents().filter((e) => e.type === 'zone').length).toBe(1);
+    r.play(5000);
+    expect(r.takeEvents().filter((e) => e.type === 'zone').length).toBe(0);
   });
 
   it('is deterministic: same data and actions give the same results', () => {
@@ -193,7 +207,7 @@ describe('replay', () => {
         rows.push([H + i * 700, +p.toFixed(2), +(p + 0.25).toFixed(2)]);
       }
       const d = day('2026-10-09', rows);
-      const r = setup([d], { zone: false, sl: false, stage: false });
+      const r = setup([d]);
       r.start(0, d.dayStart + H + 1, 0);
       r.engine.placeOrder('buy', 0.05);
       r.play(60_000);
