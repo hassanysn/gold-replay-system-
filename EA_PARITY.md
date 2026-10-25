@@ -1,8 +1,11 @@
 # EA parity: GoldLadderManager v3.0 vs the simulator
 
-Source of truth: `reference/LadderManager.mqh` (v3.0, "3.0-s4") and `reference/GoldLadderManager.mq5` (v3.00).
-v3.0-s5 removed the PLAN line from the EA panel; the simulator follows that (row 31). The s5 source
-files will replace the ones in `reference/` when they are uploaded, and this table is re-checked then.
+Source of truth: `reference/LadderManager.mqh` and `reference/GoldLadderManager.mq5`, version **3.0-s5**.
+
+**s5 check (2026-10-25):** compared line by line with 3.0-s4. The only changes are the version string and
+the removal of the PLAN line from the panel (inputs, edit boxes, `PlanText`, its saved values). The ladder
+logic in `LadderManager.mqh` is unchanged, so every row below still holds; the simulator dropped the PLAN
+line to match (row 31).
 The simulator's Ladder Manager (`src/core/engine.ts`) is now a port of the EA's `Run()` pass:
 `AssignNew` → per ladder: closed? → `EnforceCap` → `Sync` → stage 2 → stage 3 → retry pending → `Track`.
 All defaults are the EA's input defaults.
@@ -43,7 +46,7 @@ All defaults are the EA's input defaults.
 | 28 | TOTAL IF SL HITS | Over all managed tickets, % of balance, "N unmanaged" | Not shown | Shown |
 | 29 | Loss-at-SL % | −IF SL HITS / balance × 100 | Same formula on partial sums | Same as EA |
 | 30 | Panel lines | Balance / cap / ladders; per ladder: side, tickets, lots, **worst entry**; SL, TP, avg, pips, BE status (`BE done` / `BE allowed` / `BE from <price>`); stage line with "locks $"; IF SL HITS; IF CLOSED NOW | Different fields (stage label, locked $, floating) | Same lines as EA. All ladders shown at once instead of `<` `>` pages; one MOVE TO BE per ladder instead of "the ladder on the page" |
-| 31 | PLAN line | v3.0-s4: avg stop pips + lot → loss at SL. **Removed in v3.0-s5** | Not present | Added for s4, removed again to match s5 |
+| 31 | PLAN line | Not in v3.0-s5 (v3.0-s4 had avg stop pips + lot → loss at SL) | Not present | Not present (matches s5) |
 | 32 | Stage/BE settings | Editable on the panel with order check: BE buffer < S2 lock < S2 trigger, S2 lock < S3 lock < S3 trigger, S2 trigger < S3 trigger; BE buffer < BE min | Constants | Settings page with the same check |
 | 33 | Exit counting | closed_by SL / TP / manager / you / other (`DEAL_REASON`) | Single exit reason | Exit reason kept + closed_by counts |
 | 34 | Journal fields | worst entry, first/final SL, SL edits, SL widened, risk at first SL, risk max, lots max, balance before/after, stage 2 time, MFE/MAE from **worst** entry in $ of price, exit giveback, auto SL refused | Spec fields only | EA fields added (spec MFE pips and 4 h post-close run kept) |

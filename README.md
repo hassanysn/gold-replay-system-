@@ -115,7 +115,7 @@ Open the app with `?debug` to get `window.__gr` (chart views, drawing store) in 
 
 ## Ladder Manager = the MT5 EA
 
-The ladder logic is a port of your EA (`reference/LadderManager.mqh` / `reference/GoldLadderManager.mq5` v3.0), so the
+The ladder logic is a port of your EA (`reference/LadderManager.mqh` / `reference/GoldLadderManager.mq5` v3.0-s5), so the
 simulator does what the EA does on a real chart: stages 2/3 from the average (frozen at stage 2),
 MOVE TO BE at average +1 pip from +30, "manual always wins", the NEW LADDER gate, the hard lot cap
 (0.10 lot per $100 per ladder, excess closed), SL/TP sync with waiting/retry, opposite trades left
