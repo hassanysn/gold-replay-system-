@@ -125,10 +125,6 @@ function drainEvents() {
       case 'rejected':
         notice(ev.reason, 'warn');
         break;
-      case 'autopause':
-        notice(`Auto-pause: ${ev.reason}`, 'pause');
-        if (ev.reason === 'Price touched a zone') uiEvents.push({ type: 'zonePause', time: replay.clock });
-        break;
       case 'closed':
         uiEvents.push({ type: 'close', time: replay.clock, ticketId: ev.ticketId });
         break;
@@ -182,7 +178,6 @@ function enforceSpeedLock() {
 }
 
 function handle(res: AdvanceResult, retry?: () => AdvanceResult) {
-  if (res.pausedBy) playing = false;
   if (res.end) {
     playing = false;
     ended = true;
@@ -254,7 +249,7 @@ async function load(msg: Extract<ToWorker, { type: 'load' }>) {
   const engine = new Engine(msg.account, msg.balance, digits);
   engine.blown = msg.blown;
   engine.idPrefix = Date.now().toString(36);
-  const r = new Replay(days, engine, msg.autoPause);
+  const r = new Replay(days, engine);
   loaded.forEach((d, k) => r.setDay(historyFrom + k, d));
   r.start(startIdx, startAbs, historyFrom);
   // Start inside a day: if the chosen time is after that day's last tick, move on to the next day.
@@ -379,7 +374,6 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
         speedLock = msg.speedLock;
         if (replay) {
           replay.engine.updateSettings(msg.account);
-          replay.autoPause = msg.autoPause;
           enforceSpeedLock();
           sendFrame();
         }

@@ -296,12 +296,48 @@ describe('MOVE TO BE (stage 1)', () => {
     expect(e.snapshot().ladders[0]).toMatchObject({ beEnabled: false, beText: 'BE done' });
   });
 
-  it('is refused when the SL is already at or past breakeven', () => {
+  it('pulls a better SL back to average +1 pip from +30 (gives back locked profit, stays risk-free)', () => {
     const { e, tick } = mk();
-    open(e, tick, 'sell', 0.1, 2000); // avg 2000
-    tick(1994.8, 1995); // stage 2 -> SL 1998
+    open(e, tick, 'sell', 0.1, 2000); // avg 2000.00
+    tick(1994.8, 1995); // +50 -> stage 2: SL 1998.00
+    expect(e.ladder(1)!.sl).toBe(1998);
+    expect(e.snapshot().ladders[0]).toMatchObject({ beEnabled: true, bePullBack: true });
+    expect(e.applyBE(1)).toBe(true);
+    expect(e.ladder(1)!.tickets.map((t) => t.sl)).toEqual([1999.9]); // average -1 pip for a sell
+    expect(notices(e.takeEvents()).some((n) => n.includes('BE PULL-BACK | SL 1998.00 -> 1999.90') && n.includes('gives back $19.00'))).toBe(true);
+    const v = e.snapshot().ladders[0];
+    expect(v.ifSLHits).toBeCloseTo(1, 6); // still locks +1 pip: risk-free
+    expect(v.stage).toBe(2);
+    // pressing again changes nothing (never below average +1)
     expect(e.applyBE(1)).toBe(false);
-    expect(notices(e.takeEvents())[0]).toContain('already at or past breakeven 1999.90');
+    expect(e.ladder(1)!.sl).toBe(1999.9);
+  });
+
+  it('after a pull-back stage 2 does not fire again but stage 3 still does', () => {
+    const { e, tick } = mk();
+    open(e, tick, 'buy', 0.1, 2000); // avg 2000.20
+    tick(2005.2); // stage 2 -> SL 2002.20
+    e.applyBE(1); // pulled back to 2000.30
+    tick(2003.0); // retracement
+    tick(2006.0); // back above the stage 2 trigger
+    expect(e.ladder(1)!.sl).toBe(2000.3); // stage 2 does not fire again
+    tick(2010.2); // stage 3 trigger (frozen average +100)
+    expect(e.ladder(1)!.stage).toBe(3);
+    expect(e.ladder(1)!.sl).toBe(2005.2);
+    e.applyBE(1); // after stage 3 it can still be pulled back
+    expect(e.ladder(1)!.sl).toBe(2000.3);
+    e.closeLadder(1);
+    expect(closed(e.takeEvents())!.record).toMatchObject({ bePulledBack: true, beApplied: true, slEdits: 2, highestStage: 'Stage 3' });
+  });
+
+  it('still refuses below +30 even when a pull-back would be possible', () => {
+    const { e, tick } = mk();
+    open(e, tick, 'buy', 0.1, 2000); // avg 2000.20
+    tick(2005.2); // stage 2 -> SL 2002.20
+    tick(2003.0); // only +28 now
+    expect(e.snapshot().ladders[0].beEnabled).toBe(false);
+    expect(e.applyBE(1)).toBe(false);
+    expect(e.ladder(1)!.sl).toBe(2002.2);
   });
 });
 

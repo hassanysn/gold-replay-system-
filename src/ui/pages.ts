@@ -60,7 +60,7 @@ export class JournalPage {
       <td>${r.R === null ? '-' : money(r.R)}</td>
       <td>${r.riskMax === null || r.riskMax === undefined ? '-' : money(r.riskMax)}</td>
       <td>${r.slEdits ?? '-'}${r.slWidened ? ' (widened)' : ''}</td>
-      <td>${r.highestStage}${r.beApplied ? ' (BE set)' : ''}</td>
+      <td>${r.highestStage}${r.bePulledBack ? ' (BE pulled back)' : r.beApplied ? ' (BE set)' : ''}</td>
       <td>${r.exitReason}</td>
       <td>${closedBy(r)}</td>
       <td class="${cls(r.result)}">${money(r.result)}</td>
@@ -223,14 +223,9 @@ export class SettingsPage {
         ${num('s-cap', 'Lot cap per ladder per $100 of balance', a.lotPer100, '0.01', 'Trades above the cap are closed by the manager. Changes only while no trade is open. 0 = no cap')}
         ${num('s-retry', 'Retry cooldown (seconds)', a.retryCooldownSec, '1', 'Wait before retrying an SL/TP that could not be set yet')}
       </fieldset>
-      <fieldset><legend>Auto-pause</legend>
-        ${chk('ap-zone', 'Price touches a zone rectangle', s.autoPause.zone)}
-        ${chk('ap-sl', 'SL hit on any ticket', s.autoPause.sl)}
-        ${chk('ap-stage', 'Management stage reached (BE allowed, stage 2, stage 3)', s.autoPause.stage)}
-      </fieldset>
       <fieldset><legend>Replay</legend>
         ${chk('s-speedlock', 'Speed lock: only 1x and 2x while a ladder is open', s.speedLock)}
-        ${chk('s-sound', 'Sounds: trade opened, trade closed, zone alert (like MT5)', s.sound)}
+        ${chk('s-sound', 'Sounds: trade opened, trade closed, price touches a zone (like MT5)', s.sound)}
         ${num('s-utc', 'Broker server UTC offset (hours, display only)', s.serverUtcOffset, '0.5')}
       </fieldset>
       <button type="submit" class="btn primary">Save settings</button> <span id="s-saved" class="muted"></span>
@@ -261,7 +256,6 @@ export class SettingsPage {
           lotPer100: Math.max(0, v('s-cap', a.lotPer100)),
           retryCooldownSec: Math.max(0, v('s-retry', a.retryCooldownSec)),
         },
-        autoPause: { zone: c('ap-zone'), sl: c('ap-sl'), stage: c('ap-stage') },
         speedLock: c('s-speedlock'),
         sound: c('s-sound'),
         serverUtcOffset: v('s-utc', s.serverUtcOffset),

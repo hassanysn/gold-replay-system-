@@ -30,7 +30,8 @@ export interface TextDrawing extends Base {
   text: string;
 }
 export type Drawing = RectDrawing | HLineDrawing | TextDrawing;
-export type Tool = 'select' | 'rect' | 'hline' | 'text';
+/** 'cut' = TradingView-style scissors: click a candle to restart the replay from it. */
+export type Tool = 'select' | 'rect' | 'hline' | 'text' | 'cut';
 
 const COL = {
   rectFill: 'rgba(60, 100, 190, 0.13)',
@@ -39,6 +40,8 @@ const COL = {
   text: '#1d2a44',
   handle: '#ffffff',
   sel: '#1d2a44',
+  cut: '#333333',
+  cutShade: 'rgba(120, 120, 120, 0.14)',
 };
 
 export function zonesOf(items: readonly Drawing[]): Zone[] {
@@ -58,6 +61,8 @@ export class DrawingStore {
   items: Drawing[] = [];
   selectedId: string | null = null;
   tool: Tool = 'select';
+  /** Cut tool: the replay time (ms) the hovered candle would cut at (end of that candle). */
+  cutHover: number | null = null;
   private listeners: ((persist: Drawing | null, removed?: string) => void)[] = [];
 
   onChange(fn: (persist: Drawing | null, removed?: string) => void) {
@@ -100,6 +105,7 @@ export class DrawingStore {
 
   setTool(t: Tool) {
     this.tool = t;
+    if (t !== 'cut') this.cutHover = null;
     this.changed();
   }
 }
@@ -198,6 +204,31 @@ class DrawingsRenderer implements IPrimitivePaneRenderer {
           }
         }
       }
+      if (store.tool === 'cut' && store.cutHover !== null) {
+        // Cut line on the right edge of the last candle that stays, future side shaded.
+        const x = view.cutX(store.cutHover);
+        if (x !== null) {
+          ctx.fillStyle = COL.cutShade;
+          ctx.fillRect(x, 0, Math.max(0, mediaSize.width - x), mediaSize.height);
+          ctx.strokeStyle = COL.cut;
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([5, 4]);
+          ctx.beginPath();
+          ctx.moveTo(Math.round(x) + 0.5, 0);
+          ctx.lineTo(Math.round(x) + 0.5, mediaSize.height);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          const d = new Date(store.cutHover);
+          const label = `\u2702 start ${String(d.getUTCDate()).padStart(2, '0')}.${String(d.getUTCMonth() + 1).padStart(2, '0')} ${d.toISOString().slice(11, 16)}`;
+          ctx.font = '600 12px system-ui, sans-serif';
+          const w = ctx.measureText(label).width + 10;
+          const lx = Math.min(Math.max(2, x - w / 2), mediaSize.width - w - 2);
+          ctx.fillStyle = COL.cut;
+          ctx.fillRect(lx, 4, w, 18);
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText(label, lx + 5, 17);
+        }
+      }
       ctx.restore();
     });
   }
@@ -261,6 +292,10 @@ export interface InteractionOptions {
   onTradeDrag?: (hit: TradeLineHit, price: number, done: boolean) => void;
   currentDay: () => string;
   onToolDone: () => void;
+  /** Cut tool click: restart the replay at this time (ms). */
+  onCut?: (atMs: number) => void;
+  /** Current replay time (ms). */
+  now: () => number;
 }
 
 let idCounter = 0;
@@ -279,6 +314,13 @@ export class Interaction {
     const el = view.el;
     el.addEventListener('mousedown', (e) => this.onDown(e), true);
     el.addEventListener('dblclick', (e) => this.onDblClick(e), true);
+    el.addEventListener('mousemove', (e) => this.onHover(e));
+    el.addEventListener('mouseleave', () => {
+      if (this.store.cutHover !== null) {
+        this.store.cutHover = null;
+        this.store.changed();
+      }
+    });
     window.addEventListener('mousemove', (e) => this.onMove(e));
     window.addEventListener('mouseup', (e) => this.onUp(e));
   }
@@ -326,6 +368,28 @@ export class Interaction {
     return null;
   }
 
+  /** End time (ms) of the candle under x on this chart = where the replay would restart.
+   *  Right of the last candle it returns the time under the mouse, which is after the replay time. */
+  private cutAt(x: number): number | null {
+    const t = this.view.xToTime(x);
+    if (t === null) return null;
+    const bar = this.view.barAt(t / 1000);
+    if (bar === null) return null;
+    const end = (bar + this.view.tfSec) * 1000;
+    return t >= end ? t : end;
+  }
+
+  private onHover(e: MouseEvent) {
+    if (this.store.tool !== 'cut' || this.drag) return;
+    const { x, inPane } = this.local(e);
+    let at = inPane ? this.cutAt(x) : null;
+    if (at !== null && at > this.opts.now()) at = null; // nothing to cut in the future
+    if (at !== this.store.cutHover) {
+      this.store.cutHover = at;
+      this.store.changed();
+    }
+  }
+
   cursorAt(x: number, y: number): string | null {
     if (this.drag) return this.drag.type === 'trade' ? 'ns-resize' : this.drag.type === 'move' ? 'move' : 'crosshair';
     if (this.store.tool !== 'select') return 'crosshair';
@@ -350,6 +414,12 @@ export class Interaction {
     if (t === null || p === null) return;
     const day = this.opts.currentDay();
     const tool = this.store.tool;
+    if (tool === 'cut') {
+      this.take(e);
+      const at = this.cutAt(x);
+      if (at !== null) this.opts.onCut?.(at);
+      return;
+    }
     if (tool === 'rect') {
       this.take(e);
       const d: RectDrawing = { id: newId(), day, kind: 'rect', t1: t, t2: t, p1: p, p2: p, extendRight: true };

@@ -1,10 +1,8 @@
 import { type AccountSettings, DEFAULT_ACCOUNT } from '../core/engine';
-import type { AutoPauseSettings } from '../core/replay';
 import * as db from './db';
 
 export interface AppSettings {
   account: AccountSettings;
-  autoPause: AutoPauseSettings;
   speedLock: boolean;
   /** Broker server UTC offset in hours. Display only; all times stay in server time. */
   serverUtcOffset: number;
@@ -16,7 +14,6 @@ export interface AppSettings {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   account: { ...DEFAULT_ACCOUNT },
-  autoPause: { zone: true, sl: true, stage: true },
   speedLock: true,
   serverUtcOffset: 2,
   htf: 'M15',
@@ -36,7 +33,6 @@ export async function loadSettings(): Promise<AppSettings> {
     ...DEFAULT_SETTINGS,
     ...s,
     account: { ...DEFAULT_SETTINGS.account, ...s?.account },
-    autoPause: { ...DEFAULT_SETTINGS.autoPause, ...s?.autoPause },
   };
 }
 

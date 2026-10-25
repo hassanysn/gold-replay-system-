@@ -150,6 +150,28 @@ export class ChartView {
     return { width: this.chart.timeScale().width(), height: this.chart.paneSize(0).height };
   }
 
+  /** Open time (s) of the bar containing `sec`: the last bar opening at or before it; null before the first bar. */
+  barAt(sec: number): number | null {
+    const b = this.bars;
+    let lo = 0;
+    let hi = b.length - 1;
+    if (hi < 0 || sec < b[0].time) return null;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (b[mid].time <= sec) lo = mid;
+      else hi = mid - 1;
+    }
+    return b[lo].time;
+  }
+
+  /** x of the boundary right after the candle that ends at `endMs` (half a bar right of its centre). */
+  cutX(endMs: number): number | null {
+    const s = this.spacing();
+    const l = this.timeToLogical(endMs - this.tfSec * 1000);
+    if (!s || l === null) return null;
+    return s.x0 + (l + 0.5) * s.dx;
+  }
+
   /** Bar index whose bar contains `ms` (or the nearest following bar). */
   barTimeAtOrAfter(sec: number): number | null {
     const b = this.bars;

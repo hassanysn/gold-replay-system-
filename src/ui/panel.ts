@@ -126,7 +126,13 @@ class LadderSection {
     if (l.R !== null && l.rr !== null) t5 += ` = ${l.rr.toFixed(2)}R   (1R = $${l.R.toFixed(2)})${l.rr < 1 ? '   below 1R' : ''}`;
     else t5 += '   (R unknown - no SL set yet)';
     this.l5.textContent = t5;
-    this.beBtn.title = l.beEnabled ? 'Set SL to average + BE buffer' : l.beText;
+    this.beBtn.textContent = l.bePullBack ? 'PULL BACK TO BE' : 'MOVE TO BE';
+    this.beBtn.classList.toggle('pullback', l.bePullBack);
+    this.beBtn.title = l.bePullBack
+      ? 'Pull the SL back to average +1 pip: gives back locked profit to leave room for a retracement (stays risk-free)'
+      : l.beEnabled
+        ? 'Set SL to average +1 pip on every ticket'
+        : l.beText;
   }
 }
 

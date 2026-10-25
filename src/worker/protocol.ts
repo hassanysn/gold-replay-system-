@@ -4,7 +4,7 @@ import type { Bar, TfName } from '../core/candles';
 import type { Manifest } from '../core/daydata';
 import type { AccountSettings, EngineSnapshot, JournalRecord, SetupTags } from '../core/engine';
 import type { Dir } from '../core/pips';
-import type { AutoPauseSettings, Zone } from '../core/replay';
+import type { Zone } from '../core/replay';
 
 export const SPEEDS = [1, 2, 5, 10, 60] as const;
 /** Speeds allowed while a ladder is open and the speed lock is on. */
@@ -31,7 +31,6 @@ export type ToWorker =
       account: AccountSettings;
       balance: number;
       blown: boolean;
-      autoPause: AutoPauseSettings;
       speedLock: boolean;
       zones: Zone[];
     }
@@ -51,12 +50,12 @@ export type ToWorker =
   | { type: 'closeTicket'; ticketId: number }
   | { type: 'setTags'; ladderId: number; tags: SetupTags }
   | { type: 'newWarAccount'; account: AccountSettings }
-  | { type: 'settings'; account: AccountSettings; autoPause: AutoPauseSettings; speedLock: boolean }
+  | { type: 'settings'; account: AccountSettings; speedLock: boolean }
   | { type: 'zones'; zones: Zone[] }
   | { type: 'finalizePostClose'; items: PostCloseScan[] };
 
 export interface UiEvent {
-  type: 'fill' | 'close' | 'sl' | 'tp' | 'stage' | 'zone' | 'zonePause' | 'stopout';
+  type: 'fill' | 'close' | 'sl' | 'tp' | 'stage' | 'zone' | 'stopout';
   time: number;
   dir?: Dir;
   price?: number;
