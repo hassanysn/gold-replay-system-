@@ -62,60 +62,96 @@ export function fmtTime(ms: number): string {
   return new Date(ms).toISOString().replace('T', ' ').slice(0, 19);
 }
 
-const CSV_COLUMNS: [string, (r: JournalRecord) => unknown][] = [
+export type Cell = string | number | null;
+
+const r2 = (v: number) => Math.round(v * 100) / 100;
+const num = (v: number | null | undefined): Cell => (v === null || v === undefined || !Number.isFinite(v) ? null : v);
+
+/** Name of the M1 screenshot saved next to journal.xlsx (journal/images/<id>.png). */
+export function chartImageName(r: JournalRecord): string {
+  return `images/${r.id}.png`;
+}
+
+/** One column per field; the same table feeds the CSV export and journal/journal.xlsx. */
+const COLUMNS: [string, (r: JournalRecord) => Cell][] = [
   ['id', (r) => r.id],
   ['type', (r) => r.kind],
+  ['ladder_no', (r) => (r.ladderNo ? `L${r.ladderNo}` : null)],
   ['direction', (r) => r.dir],
   ['open_time', (r) => fmtTime(r.openTime)],
   ['close_time', (r) => fmtTime(r.closeTime)],
-  ['tickets', (r) => r.ticketCount],
-  ['avg_entry', (r) => r.avgEntry.toFixed(3)],
-  ['total_lot', (r) => r.totalLot],
-  ['original_sl', (r) => r.originalSL ?? ''],
-  ['risk_at_first_sl_usd', (r) => r.R ?? ''],
-  ['ladder_no', (r) => (r.ladderNo ? `L${r.ladderNo}` : '')],
-  ['worst_entry', (r) => r.worstEntry ?? ''],
-  ['lots_max_open', (r) => r.lotsMax ?? ''],
-  ['final_sl', (r) => r.finalSL ?? ''],
-  ['sl_edits', (r) => r.slEdits ?? ''],
-  ['sl_widened', (r) => (r.slWidened === undefined ? '' : r.slWidened ? 'yes' : 'no')],
-  ['risk_max_usd', (r) => r.riskMax ?? ''],
-  ['balance_before', (r) => r.balanceBefore ?? ''],
+  // setup tags
+  ['session', (r) => r.tags?.session || null],
+  ['pd_array', (r) => r.tags?.pdArray || null],
+  ['htf_trend', (r) => r.tags?.htfTrend || null],
+  ['confirmation', (r) => r.tags?.confirmation || null],
+  ['zone_size_pips', (r) => num(r.tags?.zonePips)],
+  ['avg_stop_pips', (r) => num(r.tags?.avgStopPips)],
+  ['rule_followed', (r) => r.tags?.ruleFollowed || null],
+  // result
+  ['result_usd', (r) => r2(r.result)],
+  ['result_R', (r) => num(r.resultR)],
+  ['closed_below_1R', (r) => (r.resultR === null ? null : r.resultR < 1 ? 'yes' : 'no')],
+  ['result_pips', (r) => num(r.resultPips)],
   ['highest_stage', (r) => r.highestStage],
-  ['stage2_time', (r) => (r.stage2Time ? fmtTime(r.stage2Time) : '')],
   ['be_applied', (r) => (r.beApplied ? 'yes' : 'no')],
   ['exit_reason', (r) => r.exitReason],
-  ['result_usd', (r) => r.result.toFixed(2)],
-  ['result_R', (r) => (r.resultR === null ? '' : r.resultR.toFixed(2))],
-  ['result_pips', (r) => r.resultPips],
-  ['mfe_pips', (r) => r.mfePips],
-  ['mfe_price', (r) => r.mfePrice ?? ''],
-  ['mae_price', (r) => r.maePrice ?? ''],
-  ['exit_giveback', (r) => r.giveback ?? ''],
-  ['closed_by_sl', (r) => r.closedBy?.sl ?? ''],
-  ['closed_by_tp', (r) => r.closedBy?.tp ?? ''],
-  ['closed_by_manager', (r) => r.closedBy?.manager ?? ''],
-  ['closed_by_you', (r) => r.closedBy?.you ?? ''],
-  ['closed_by_other', (r) => r.closedBy?.other ?? ''],
-  ['auto_sl_refused', (r) => r.autoSlRefused ?? ''],
-  ['post_close_run_pips', (r) => (r.postClosePips === null ? '' : r.postClosePips)],
+  ['mfe_pips', (r) => num(r.mfePips)],
+  ['post_close_run_pips', (r) => num(r.postClosePips)],
   ['post_close_complete', (r) => (r.postCloseDone ? 'yes' : 'no')],
   ['captured_pct', (r) => {
     const c = capturedPct(r);
-    return c === null ? '' : c.toFixed(1);
+    return c === null ? null : Math.round(c * 10) / 10;
   }],
-  ['balance_after', (r) => r.balanceAfter.toFixed(2)],
+  // ladder detail (EA journal fields)
+  ['tickets', (r) => r.ticketCount],
+  ['avg_entry', (r) => Math.round(r.avgEntry * 1000) / 1000],
+  ['worst_entry', (r) => num(r.worstEntry)],
+  ['total_lot', (r) => r.totalLot],
+  ['lots_max_open', (r) => num(r.lotsMax)],
+  ['original_sl', (r) => num(r.originalSL)],
+  ['final_sl', (r) => num(r.finalSL)],
+  ['risk_at_first_sl_usd', (r) => num(r.R)],
+  ['risk_max_usd', (r) => num(r.riskMax)],
+  ['sl_edits', (r) => num(r.slEdits)],
+  ['sl_widened', (r) => (r.slWidened === undefined ? null : r.slWidened ? 'yes' : 'no')],
+  ['stage2_time', (r) => (r.stage2Time ? fmtTime(r.stage2Time) : null)],
+  ['mfe_price', (r) => num(r.mfePrice)],
+  ['mae_price', (r) => num(r.maePrice)],
+  ['exit_giveback', (r) => num(r.giveback)],
+  ['closed_by_sl', (r) => num(r.closedBy?.sl)],
+  ['closed_by_tp', (r) => num(r.closedBy?.tp)],
+  ['closed_by_manager', (r) => num(r.closedBy?.manager)],
+  ['closed_by_you', (r) => num(r.closedBy?.you)],
+  ['closed_by_other', (r) => num(r.closedBy?.other)],
+  ['auto_sl_refused', (r) => num(r.autoSlRefused)],
+  ['balance_before', (r) => num(r.balanceBefore)],
+  ['balance_after', (r) => r2(r.balanceAfter)],
+  ['chart_image', (r) => chartImageName(r)],
   ['ticket_detail', (r) => r.tickets.map((t) => `${t.lot}@${t.openPrice}->${t.closePrice} ${t.profit.toFixed(2)} ${t.reason}`).join(' | ')],
-  ['note', (r) => r.note],
+  ['note', (r) => r.note || null],
 ];
 
-function csvCell(v: unknown): string {
-  const s = String(v ?? '');
+export function journalHeader(): string[] {
+  return COLUMNS.map((c) => c[0]);
+}
+
+export function journalRow(r: JournalRecord): Cell[] {
+  return COLUMNS.map(([, f]) => f(r));
+}
+
+export function journalTable(records: readonly JournalRecord[]): { header: string[]; rows: Cell[][] } {
+  return { header: journalHeader(), rows: records.map(journalRow) };
+}
+
+function csvCell(v: Cell): string {
+  const s = v === null ? '' : String(v);
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 export function toCSV(records: readonly JournalRecord[]): string {
-  const lines = [CSV_COLUMNS.map((c) => c[0]).join(',')];
-  for (const r of records) lines.push(CSV_COLUMNS.map(([, f]) => csvCell(f(r))).join(','));
+  const t = journalTable(records);
+  const lines = [t.header.join(',')];
+  for (const row of t.rows) lines.push(row.map(csvCell).join(','));
   return lines.join('\r\n') + '\r\n';
 }

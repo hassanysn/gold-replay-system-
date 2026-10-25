@@ -17,9 +17,9 @@ export interface Zone {
   extendRight: boolean;
 }
 
+/** Auto-pause triggers. A trade fill never pauses: on a real chart the market keeps moving. */
 export interface AutoPauseSettings {
   zone: boolean;
-  fill: boolean;
   sl: boolean;
   stage: boolean;
 }
@@ -213,8 +213,7 @@ export class Replay {
     for (const ev of this.engine.takeEvents()) {
       this.events.push(ev);
       if (reason) continue;
-      if (ev.type === 'fill' && ap.fill) reason = 'Ticket filled';
-      else if (ev.type === 'sl' && ap.sl) reason = ev.reason === 'SL' ? 'SL hit' : 'Stage SL hit';
+      if (ev.type === 'sl' && ap.sl) reason = ev.reason === 'SL' ? 'SL hit' : 'Stage SL hit';
       else if (ev.type === 'stopout') reason = 'Stop-out';
       else if (ev.type === 'stage' && ap.stage) reason = STAGE_PAUSE[ev.stage];
     }

@@ -1,6 +1,7 @@
 // Journal, Stats and Settings pages.
 
 import { type JournalRecord, type LadderKind, stageCheck } from '../core/engine';
+import { tagSummary } from './tags';
 import { availablePips, capturedPct, computeStats, filterRecords, fmtTime, toCSV } from '../core/stats';
 import * as db from './db';
 import type { AppSettings } from './settings';
@@ -33,6 +34,7 @@ export class JournalPage {
     private root: HTMLElement,
     private getRecords: () => JournalRecord[],
     private saveNote: (id: string, note: string) => void,
+    private editTags: (id: string) => void,
   ) {}
 
   render() {
@@ -48,6 +50,7 @@ export class JournalPage {
       <td>${fmtTime(r.openTime)}<br><span class="muted">${fmtTime(r.closeTime)}</span></td>
       <td class="${r.dir}">${r.dir.toUpperCase()}</td>
       <td>${r.kind}</td>
+      <td class="setup">${esc(tagSummary(r.tags)) || '<span class="muted">none</span>'} <button class="btn tags-btn">Edit</button></td>
       <td>${r.ticketCount}</td>
       <td>${r.avgEntry.toFixed(3)}</td>
       <td>${r.totalLot.toFixed(2)}</td>
@@ -72,7 +75,7 @@ export class JournalPage {
       .join('');
     this.root.innerHTML = `<h2>Journal <span class="muted">(${rs.length})</span></h2>
       <div class="table-wrap"><table class="journal">
-      <thead><tr><th></th><th>Open / close</th><th>Dir</th><th>Type</th><th>Tickets</th><th>Avg entry</th><th>Lot</th>
+      <thead><tr><th></th><th>Open / close</th><th>Dir</th><th>Type</th><th>Setup tags</th><th>Tickets</th><th>Avg entry</th><th>Lot</th>
       <th>Ladder</th><th>Worst entry</th>
       <th>First SL</th><th title="Risk at the first SL (EA risk_at_first_sl) - net R uses it">R</th><th title="Worst IF SL HITS seen (EA risk_max) - the panel's 1R">Risk max</th><th>SL edits</th>
       <th>Highest stage</th><th>Exit</th><th>Closed by</th><th>Result</th><th>R</th><th>Pips</th>
@@ -82,6 +85,7 @@ export class JournalPage {
       const ta = tr.querySelector('textarea')!;
       ta.addEventListener('change', () => this.saveNote(id, ta.value));
       tr.querySelector<HTMLButtonElement>('.shot-btn')!.onclick = () => showShot(id);
+      tr.querySelector<HTMLButtonElement>('.tags-btn')!.onclick = () => this.editTags(id);
     }
   }
 }
@@ -113,6 +117,7 @@ export class StatsPage {
   constructor(
     private root: HTMLElement,
     private getRecords: () => JournalRecord[],
+    private onExport: () => void,
   ) {}
 
   render() {
@@ -166,7 +171,10 @@ export class StatsPage {
       this.to = t.value;
       this.render();
     };
-    this.root.querySelector<HTMLButtonElement>('#st-csv')!.onclick = () => downloadCSV(all);
+    this.root.querySelector<HTMLButtonElement>('#st-csv')!.onclick = () => {
+      downloadCSV(all);
+      this.onExport(); // also refreshes journal/journal.xlsx
+    };
   }
 }
 
@@ -217,12 +225,12 @@ export class SettingsPage {
       </fieldset>
       <fieldset><legend>Auto-pause</legend>
         ${chk('ap-zone', 'Price touches a zone rectangle', s.autoPause.zone)}
-        ${chk('ap-fill', 'A ticket fills', s.autoPause.fill)}
         ${chk('ap-sl', 'SL hit on any ticket', s.autoPause.sl)}
         ${chk('ap-stage', 'Management stage reached (BE allowed, stage 2, stage 3)', s.autoPause.stage)}
       </fieldset>
       <fieldset><legend>Replay</legend>
         ${chk('s-speedlock', 'Speed lock: only 1x and 2x while a ladder is open', s.speedLock)}
+        ${chk('s-sound', 'Sounds: trade opened, trade closed, zone alert (like MT5)', s.sound)}
         ${num('s-utc', 'Broker server UTC offset (hours, display only)', s.serverUtcOffset, '0.5')}
       </fieldset>
       <button type="submit" class="btn primary">Save settings</button> <span id="s-saved" class="muted"></span>
@@ -253,8 +261,9 @@ export class SettingsPage {
           lotPer100: Math.max(0, v('s-cap', a.lotPer100)),
           retryCooldownSec: Math.max(0, v('s-retry', a.retryCooldownSec)),
         },
-        autoPause: { zone: c('ap-zone'), fill: c('ap-fill'), sl: c('ap-sl'), stage: c('ap-stage') },
+        autoPause: { zone: c('ap-zone'), sl: c('ap-sl'), stage: c('ap-stage') },
         speedLock: c('s-speedlock'),
+        sound: c('s-sound'),
         serverUtcOffset: v('s-utc', s.serverUtcOffset),
       };
       const why = stageCheck(next.account);

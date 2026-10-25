@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| LadderManager.mqh  v3.0 (step 4: if closed now = $ and R)        |
+//| LadderManager.mqh  v3.0 (s5: plan line removed from panel)       |
 //| Manages the trades YOU open, grouped into ladders (max 3).       |
 //| Per ladder: SL/TP sync, lot cap, stages 1-3. All from AVERAGE.   |
 //| Stage 1 : MOVE TO BE button -> SL = average entry + buffer pips, |
@@ -21,7 +21,7 @@
 #include <Trade/Trade.mqh>
 
 #define LM_MAX 3
-#define LM_VERSION "3.0-s4"
+#define LM_VERSION "3.0-s5"
 #define LM_JFILE "LM_journal.csv"
 
 struct LMPos

@@ -1,11 +1,10 @@
 //+------------------------------------------------------------------+
-//| GoldLadderManager.mq5  v3.0 (step 4: if closed now = $ and R)    |
+//| GoldLadderManager.mq5  v3.0 (s5: plan line removed)              |
 //| Manages the trades YOU open, grouped into ladders (max 3).       |
 //| Needs LadderManager.mqh in the same folder.                      |
 //| Manual edits always win; the EA only acts at stage 2 and 3.      |
 //| Panel: drag by the title bar, A-/A+ size, pages < >, NEW LADDER, |
-//|        MOVE TO BE (stage 1, for the ladder shown on the page),   |
-//|        PLAN: type avg stop pips + lot -> loss at SL $ and %.     |
+//|        MOVE TO BE (stage 1, for the ladder shown on the page).   |
 //| Journal: one row per closed ladder in Common\Files\LM_journal.csv|
 //+------------------------------------------------------------------+
 #property version   "3.00"
@@ -50,9 +49,6 @@ double SCALES[]={0.8,0.9,1.0,1.1,1.25,1.4};
 bool   g_min=false;
 bool   g_drag=false, g_prevLeft=false, g_scrollWas=true;
 int    g_offx=0, g_offy=0;
-
-//--- v3 plan line (remembered across restarts, no effect on trading)
-double g_planPips=50, g_planLot=0.05;
 
 string EDIT_KEYS[]  ={"s2t","s2l","s3t","s3l"};
 string EDIT_NAMES[] ={"Stage 2 trigger  pips","Stage 2 lock  pips","Stage 3 trigger  pips","Stage 3 lock  pips"};
@@ -109,8 +105,7 @@ int Y_TOTAL() { return 2*RW()+S(4); }
 int Y_PAGE()  { return 3*RW()+S(14); }
 int Y_L1()    { return 4*RW()+S(18); }
 int Y_NEW()   { return 10*RW()-S(2); }
-int Y_PLAN()  { return 11*RW()+S(10); }
-int Y_SET()   { return 14*RW()+S(14); }
+int Y_SET()   { return 12*RW()+S(10); }
 int PH()      { return g_min ? RW()+S(10) : Y_SET()+(ArraySize(EDIT_KEYS)+1)*RW()+S(14); }
 
 string GVP(string k) { return "LM."+_Symbol+".panel."+k; }
@@ -120,8 +115,6 @@ void SavePanel()
    GlobalVariableSet(GVP("y"),g_y);
    GlobalVariableSet(GVP("s"),g_scIdx);
    GlobalVariableSet(GVP("m"),g_min?1:0);
-   GlobalVariableSet(GVP("pp"),g_planPips);
-   GlobalVariableSet(GVP("pl"),g_planLot);
 }
 void LoadPanel()
 {
@@ -132,10 +125,6 @@ void LoadPanel()
       g_scIdx=(int)GlobalVariableGet(GVP("s"));
       g_min=GlobalVariableGet(GVP("m"))>0.5;
    }
-   if(GlobalVariableCheck(GVP("pp"))) g_planPips=GlobalVariableGet(GVP("pp"));
-   if(GlobalVariableCheck(GVP("pl"))) g_planLot =GlobalVariableGet(GVP("pl"));
-   if(g_planPips<=0) g_planPips=50;
-   if(g_planLot<=0)  g_planLot=0.05;
    if(g_scIdx<0 || g_scIdx>=ArraySize(SCALES)) g_scIdx=2;
    if(g_x<0)
    {
@@ -248,10 +237,6 @@ void Layout()
    Button("GLM_NEXT",PW()-S(34),Y_PAGE()-S(2),bw,bh,">",clrDimGray);
    Button("GLM_NEW",S(8),Y_NEW(),S(140),S(22),"NEW LADDER",clrSeaGreen);
    Button("GLM_BE",S(158),Y_NEW(),S(140),S(22),"MOVE TO BE",clrSteelBlue);
-   Label("GLM_PH",S(8),Y_PLAN(),"PLAN  avg stop pips",clrSilver,9,true);
-   EditBox("GLM_P_pips",S(140),Y_PLAN()-S(1),DoubleToString(g_planPips,0));
-   Label("GLM_PLT",S(212),Y_PLAN(),"lot",clrSilver,9,true);
-   EditBox("GLM_P_lot",S(240),Y_PLAN()-S(1),DoubleToString(g_planLot,2));
    Label("GLM_SETH",S(8),Y_SET()-RW()+S(2),"SETTINGS (type a value + Enter)",clrSilver,8,true);
    for(int i=0;i<ArraySize(EDIT_KEYS);i++)
    {
@@ -266,22 +251,6 @@ void BuildPanel()
    ObjectsDeleteAll(0,"GLM_");
    Clamp();
    Layout();
-}
-
-// loss if the planned ladder hits its SL: lot x average stop distance
-string PlanText(double bal)
-{
-   double px=SymbolInfoDouble(_Symbol,SYMBOL_BID);
-   if(px<=0) return "plan: no price yet";
-   double pr=0;
-   if(!OrderCalcProfit(ORDER_TYPE_BUY,_Symbol,g_planLot,px,px-g_planPips*InpPipSize,pr)) return "plan: cannot calculate";
-   double loss=MathAbs(pr);
-   double perPip=(g_planPips>0 ? loss/g_planPips : 0);
-   string t=StringFormat("Loss at SL: -$%.2f = %.1f%% of balance  ($%.2f per pip)",
-                         loss,(bal>0?loss/bal*100.0:0),perPip);
-   double cap=g_lm.LotCap();
-   if(g_planLot>cap+1e-9) t+=StringFormat("  | OVER CAP %.2f",cap);
-   return t;
 }
 
 void RefreshPanel()
@@ -305,8 +274,6 @@ void RefreshPanel()
    }
    if(unmanaged>0) tot+="  | "+(string)unmanaged+" unmanaged";
    Label("GLM_TOT",S(8),Y_TOTAL(),tot,tc,9,true);
-
-   Label("GLM_PR",S(8),Y_PLAN()+RW()+S(2),PlanText(bal),clrSilver,9);
 
    string title,l1,l2,l3,l4,l5; color rc;
    g_lm.PageLines(title,l1,l2,l3,l4,l5,rc);
@@ -472,27 +439,6 @@ void OnChartEvent(const int id,const long &lparam,const double &dparam,const str
       return;
    }
 
-   if(id==CHARTEVENT_OBJECT_ENDEDIT && StringFind(sparam,"GLM_P_")==0)
-   {
-      string txt=ObjectGetString(0,sparam,OBJPROP_TEXT);
-      StringReplace(txt,",",".");
-      double v=StringToDouble(txt);
-      if(sparam=="GLM_P_pips")
-      {
-         if(v>0 && v<=1000) g_planPips=v;
-         ObjectSetString(0,sparam,OBJPROP_TEXT,DoubleToString(g_planPips,0));
-      }
-      else if(sparam=="GLM_P_lot")
-      {
-         double st=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP); if(st<=0) st=0.01;
-         v=NormalizeDouble(MathRound(v/st)*st,2);
-         if(v>0 && v<=100) g_planLot=v;
-         ObjectSetString(0,sparam,OBJPROP_TEXT,DoubleToString(g_planLot,2));
-      }
-      SavePanel();
-      RefreshPanel();
-      return;
-   }
    if(id!=CHARTEVENT_OBJECT_ENDEDIT || StringFind(sparam,"GLM_E_")!=0) return;
    string key=StringSubstr(sparam,6);
    int idx=-1;

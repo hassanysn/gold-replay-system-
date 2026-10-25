@@ -3,7 +3,10 @@
 import type { Time } from 'lightweight-charts';
 import { type Bar, TF_MS, TF_NAMES, type TfName } from './core/candles';
 import type { Manifest } from './core/daydata';
-import { Engine, type EngineSnapshot, type JournalRecord, POST_CLOSE_TRACK_MS } from './core/engine';
+import { EMPTY_TAGS, Engine, type EngineSnapshot, type JournalRecord, POST_CLOSE_TRACK_MS, tagsComplete } from './core/engine';
+import { onJournalSyncStatus, syncJournal, uploadShot } from './ui/journalSync';
+import { playAlert, playClose, playOpen, setSoundEnabled, unlockSound } from './ui/sound';
+import { openTagCard } from './ui/tags';
 import { isoDate } from './core/stats';
 import { type Frame, type FromWorker, LOCKED_SPEEDS, SPEEDS, type ToWorker } from './worker/protocol';
 import SimWorker from './worker/sim.worker.ts?worker';
@@ -35,6 +38,9 @@ const send = (m: ToWorker) => worker.postMessage(m);
 function hasPositions(s: EngineSnapshot): boolean {
   return s.ladders.some((l) => l.ticketCount > 0) || s.unmanaged.length > 0 || s.pendingOrders > 0;
 }
+
+let lastSyncKey = 'true/false';
+window.addEventListener('pointerdown', unlockSound, { once: true });
 
 // ------------------------------------------------------------------ toasts
 
@@ -243,6 +249,7 @@ function initPanel() {
       setTicketSL: (ticketId, price) => send({ type: 'setTicketSL', ticketId, price }),
       setTicketTP: (ticketId, price) => send({ type: 'setTicketTP', ticketId, price }),
       closeTicket: (ticketId) => send({ type: 'closeTicket', ticketId }),
+      setTags: (ladderId, tags) => send({ type: 'setTags', ladderId, tags }),
       newWarAccount: () => {
         if (!session) {
           account = { balance: settings.account.startBalance, blown: false };
@@ -268,20 +275,42 @@ function initPanel() {
 
 // ------------------------------------------------------------------ pages
 
-const journalPage = new JournalPage($('page-journal'), () => journal, (id, note) => {
-  const r = journal.find((x) => x.id === id);
-  if (r) {
-    r.note = note;
-    void db.put('journal', r);
-  }
-});
-const statsPage = new StatsPage($('page-stats'), () => journal);
+function saveRecord(r: JournalRecord) {
+  void db.put('journal', r);
+  syncJournal(journal);
+}
+
+function editTags(r: JournalRecord) {
+  openTagCard(`Setup tags - ${r.dir.toUpperCase()} ${r.ladderNo ? `L${r.ladderNo} ` : ''}closed ${new Date(r.closeTime).toISOString().slice(0, 16).replace('T', ' ')}`, r.tags, (t) => {
+    r.tags = t;
+    saveRecord(r);
+    if (page === 'journal') journalPage.render();
+  });
+}
+
+const journalPage = new JournalPage(
+  $('page-journal'),
+  () => journal,
+  (id, note) => {
+    const r = journal.find((x) => x.id === id);
+    if (r) {
+      r.note = note;
+      saveRecord(r);
+    }
+  },
+  (id) => {
+    const r = journal.find((x) => x.id === id);
+    if (r) editTags(r);
+  },
+);
+const statsPage = new StatsPage($('page-stats'), () => journal, () => syncJournal(journal, 0));
 const settingsPage = new SettingsPage(
   $('page-settings'),
   () => settings,
   (s) => {
     settings = s;
     void saveSettings(s);
+    setSoundEnabled(s.sound);
     send({ type: 'settings', account: s.account, autoPause: s.autoPause, speedLock: s.speedLock });
     if (lastFrame) updateControls(lastFrame);
   },
@@ -323,19 +352,11 @@ function applyBars(f: Frame) {
 function applyFrame(f: Frame) {
   applyBars(f);
   lastFrame = f;
-  for (const ev of f.events) {
-    if (ev.type === 'fill' && ev.price !== undefined) {
-      const buy = ev.dir === 'buy';
-      tradeLines.addMarker({
-        time: (Math.floor(ev.time / 60_000) * 60) as Time,
-        position: buy ? 'atPriceBottom' : 'atPriceTop',
-        price: ev.price,
-        shape: buy ? 'arrowUp' : 'arrowDown',
-        color: CHART_COLORS.marker,
-        text: `${buy ? 'B' : 'S'} ${ev.lot}`,
-      });
-    }
-  }
+  // One sound per kind per frame, like MT5: trade opened, trade closed, zone alert.
+  const kinds = new Set(f.events.map((e) => e.type));
+  if (kinds.has('fill')) playOpen();
+  if (kinds.has('close')) playClose();
+  if (kinds.has('zonePause')) playAlert();
   tradeLines.update(f.snap);
   panel.update(f.snap);
   updateControls(f);
@@ -350,7 +371,11 @@ function takeShots() {
   while (pendingShots.length) {
     const id = pendingShots.shift()!;
     try {
-      m1View.chart.takeScreenshot().toBlob((blob) => blob && void db.put('shots', blob, id), 'image/png');
+      m1View.chart.takeScreenshot().toBlob((blob) => {
+        if (!blob) return;
+        void db.put('shots', blob, id);
+        void uploadShot(id, blob);
+      }, 'image/png');
     } catch {
       /* chart not visible */
     }
@@ -359,7 +384,8 @@ function takeShots() {
 
 function onJournal(r: JournalRecord) {
   journal.push(r);
-  void db.put('journal', r);
+  saveRecord(r);
+  if (r.kind === 'ladder' && !tagsComplete(r.tags)) editTags(r);
   const exitText = { SL: 'SL', 'stage SL': 'SL', TP: 'TP', 'manual close': 'X', 'cap close': 'CAP', 'stop-out': 'SO' }[r.exitReason];
   const lastTicket = r.tickets[r.tickets.length - 1];
   if (lastTicket) {
@@ -382,7 +408,7 @@ function onPostClose(entryId: string, pips: number | null, done: boolean) {
   if (!r) return;
   r.postClosePips = pips;
   r.postCloseDone = done;
-  void db.put('journal', r);
+  saveRecord(r);
   if (page === 'journal') journalPage.render();
   if (page === 'stats') statsPage.render();
 }
@@ -517,7 +543,15 @@ window.addEventListener('beforeunload', (e) => {
 async function boot() {
   settings = await loadSettings();
   account = await loadAccountState(settings);
-  journal = await db.getAll<JournalRecord>('journal').catch(() => []);
+  journal = (await db.getAll<JournalRecord>('journal').catch(() => [] as JournalRecord[])).map((r) => ({ ...r, tags: { ...EMPTY_TAGS, ...r.tags } }));
+  setSoundEnabled(settings.sound);
+  onJournalSyncStatus((st) => {
+    $('status').textContent = st.text;
+    const key = `${st.ok}/${st.waiting}`;
+    if (key !== lastSyncKey && (!st.ok || st.waiting)) toast(st.text, 'warn', 6000);
+    lastSyncKey = key;
+  });
+  if (journal.length) syncJournal(journal, 1500);
   initPanel();
   const idle = new Engine(settings.account, account.balance, 2);
   idle.blown = account.blown;

@@ -1,9 +1,12 @@
 // Movable Gold Ladder Manager panel - shows the same lines as the MT5 EA panel (GoldLadderManager.mq5):
 // balance / cap / ladders, TOTAL IF SL HITS, NEW LADDER, MOVE TO BE, per ladder the 5 page lines,
-// the PLAN line. All ladders are listed at once instead of < > pages. Keeps its own colours.
+// setup tags per ladder. All ladders are listed at once instead of < > pages. Keeps its own colours.
+// (The PLAN line was removed from the EA in v3.0-s5 and is not shown here either.)
 
 import type { EngineSnapshot, LadderView, TicketView } from '../core/engine';
-import { PIP, type Dir } from '../core/pips';
+import type { Dir } from '../core/pips';
+import type { SetupTags } from '../core/engine';
+import { TagEditor, tagSummary } from './tags';
 
 export interface PanelActions {
   order(dir: Dir, lot: number): void;
@@ -14,6 +17,7 @@ export interface PanelActions {
   setTicketSL(ticketId: number, price: number | null): void;
   setTicketTP(ticketId: number, price: number | null): void;
   closeTicket(ticketId: number): void;
+  setTags(ladderId: number, tags: SetupTags): void;
   closeAll(): void;
   newLadder(): void;
   newWarAccount(): void;
@@ -63,6 +67,9 @@ class LadderSection {
   private slIn: HTMLInputElement;
   private tpIn: HTMLInputElement;
   private beBtn = el('button', 'btn be', 'MOVE TO BE');
+  private tagBox = el('details', 'tags');
+  private tagHead = el('summary');
+  private tags: TagEditor;
   private closeBtn = el('button', 'btn close', 'Close ladder');
 
   constructor(
@@ -79,7 +86,9 @@ class LadderSection {
     this.closeBtn.onclick = () => a.closeLadder(id);
     const btns = el('div', 'row');
     btns.append(this.beBtn, this.closeBtn);
-    this.root.append(this.title, this.l1, edits, this.l2, this.l3, this.l4, this.l5, btns);
+    this.tags = new TagEditor(undefined, (t) => a.setTags(id, t));
+    this.tagBox.append(this.tagHead, this.tags.root);
+    this.root.append(this.title, this.l1, edits, this.l2, this.l3, this.l4, this.l5, btns, this.tagBox);
   }
 
   update(l: LadderView, count: number, digits: number) {
@@ -93,6 +102,9 @@ class LadderSection {
     this.closeBtn.disabled = empty;
     setPrice(this.slIn, l.sl, d);
     setPrice(this.tpIn, l.tp, d);
+    this.tags.set(l.tags);
+    const sum = tagSummary(l.tags);
+    this.tagHead.textContent = sum ? `Setup: ${sum}` : 'Setup tags (session, PD array, trend...)';
     if (empty) {
       this.l1.textContent = l.stageText;
       this.l3.textContent = '';
@@ -161,13 +173,9 @@ export class Panel {
   private warBtn = el('button', 'btn', 'New war account');
   private ladderBox = el('div', 'ladders');
   private unmanagedBox = el('div', 'unmanaged');
-  private planPips = el('input');
-  private planLot = el('input');
-  private planText = el('div', 'line');
   private sections = new Map<number, LadderSection>();
   private rows = new Map<number, UnmanagedRow>();
   private collapsed = false;
-  private last: EngineSnapshot | null = null;
   digits = 2;
 
   constructor(
@@ -199,36 +207,8 @@ export class Panel {
     const globalBtns = el('div', 'row');
     globalBtns.append(this.newLadderBtn, this.closeAllBtn, this.warBtn);
 
-    // PLAN: avg stop pips + lot -> loss at SL $ and %
-    const saved = (() => {
-      try {
-        return JSON.parse(localStorage.getItem('gr-plan') ?? 'null') as { pips: number; lot: number } | null;
-      } catch {
-        return null;
-      }
-    })();
-    for (const [inp, v, step] of [
-      [this.planPips, saved?.pips ?? 50, '1'],
-      [this.planLot, saved?.lot ?? 0.05, '0.01'],
-    ] as const) {
-      inp.type = 'number';
-      inp.step = step;
-      inp.className = 'plan-in';
-      inp.value = String(v);
-      inp.onchange = () => {
-        try {
-          localStorage.setItem('gr-plan', JSON.stringify({ pips: Number(this.planPips.value), lot: Number(this.planLot.value) }));
-        } catch {
-          /* ignore */
-        }
-        if (this.last) this.updatePlan(this.last);
-      };
-    }
-    const plan = el('div', 'edits plan');
-    plan.append(el('span', 'lbl', 'PLAN  avg stop pips'), this.planPips, el('span', 'lbl', 'lot'), this.planLot);
-
     this.unmanagedBox.append(el('div', 'ladder-title', 'UNMANAGED - opposite to your ladder(s), manage it yourself'));
-    this.body.append(orderRow, this.info, this.acct, this.total, globalBtns, this.ladderBox, this.unmanagedBox, plan, this.planText);
+    this.body.append(orderRow, this.info, this.acct, this.total, globalBtns, this.ladderBox, this.unmanagedBox);
     this.root.append(head, this.body);
     host.append(this.root);
 
@@ -270,21 +250,7 @@ export class Panel {
     });
   }
 
-  private updatePlan(s: EngineSnapshot) {
-    const pips = Number(this.planPips.value);
-    const lot = Number(this.planLot.value);
-    if (!(pips > 0) || !(lot > 0)) {
-      this.planText.textContent = '';
-      return;
-    }
-    const loss = lot * s.contractSize * pips * PIP;
-    let t = `Loss at SL: -$${loss.toFixed(2)} = ${(s.balance > 0 ? (loss / s.balance) * 100 : 0).toFixed(1)}% of balance  ($${(loss / pips).toFixed(2)} per pip)`;
-    if (lot > s.lotCap + 1e-9) t += `  | OVER CAP ${s.lotCap.toFixed(2)}`;
-    this.planText.textContent = t;
-  }
-
   update(s: EngineSnapshot) {
-    this.last = s;
     const d = this.digits;
     this.buyBtn.textContent = Number.isFinite(s.ask) ? `BUY ${s.ask.toFixed(d)}` : 'BUY';
     this.sellBtn.textContent = Number.isFinite(s.bid) ? `SELL ${s.bid.toFixed(d)}` : 'SELL';
@@ -344,6 +310,5 @@ export class Panel {
       }
     }
     this.unmanagedBox.hidden = s.unmanaged.length === 0;
-    this.updatePlan(s);
   }
 }
